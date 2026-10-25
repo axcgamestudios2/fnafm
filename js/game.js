@@ -136,11 +136,25 @@ const Game = {
       }
     }
 
-    /* ---- Ataque final tras el apagón ---- */
+    /* ---- Ataque final tras el apagón ----
+       SOLO animatrónicos con jugador: si hay un Freddy jugador,
+       él ataca (clásico). Si no, ataca quien esté EN una puerta.
+       Si no hay nadie, el guardia aguanta la oscuridad hasta las 6AM. */
     if (s.powerOut && s.powerOutAt !== null && s.t >= s.powerOutAt && !s.over) {
-      this.finish("anims", "freddy", "La energía se agotó... Freddy entró en la oscuridad.");
-      this.ev("caught", { by: "freddy", reason: "power" });
-      return;
+      let attacker = null;
+      if (s.anims.freddy) attacker = "freddy";
+      else {
+        for (const ch in s.anims) {
+          if (s.anims[ch].node === "ldoor" || s.anims[ch].node === "rdoor") { attacker = ch; break; }
+        }
+      }
+      if (attacker) {
+        this.finish("anims", attacker, "La energía se agotó... " + CHARS[attacker].name + " entró en la oscuridad.");
+        this.ev("caught", { by: attacker, reason: "power" });
+        return;
+      }
+      // nadie puede atacar: la noche continúa a oscuras hasta las 6AM
+      s.powerOutAt = null;
     }
 
     /* ---- Habilidad de susto: recargas aleatorias ---- */
@@ -279,7 +293,7 @@ const Game = {
           s.stats.blocked++;
           this.ev("blocked", { by: charId });
         } else {
-          this.finish("anims", charId, "¡" + CHARS[charId].name + " entró en la oficina!");
+          this.finish("anims", charId, "La puerta de la oficina estaba abierta…");
           this.ev("caught", { by: charId, reason: "capture" });
         }
         return;

@@ -41,7 +41,7 @@ const Anim = {
 
     // ---- estado (reloj / energía enemiga) ----
     document.getElementById("anim-status").innerHTML =
-      '🕐 <span id="st-clock">12 AM</span> &nbsp;·&nbsp; ⚡ <span id="st-power">100%</span>' +
+      '<span id="st-clock">12 AM</span> &nbsp;·&nbsp; ENERGÍA DEL GUARDIA: <span id="st-power">100%</span>' +
       '<span id="st-po"></span>';
 
     // ---- escena inmersiva ----
@@ -100,7 +100,7 @@ const Anim = {
         '<div class="foxy-box">' +
         '  <div class="foxy-phases" id="foxy-phases"></div>' +
         '  <div class="act-row">' +
-        '    <button class="abtn scare" id="btn-phase"><span class="ab-ico">🎭</span> AVANZAR FASE<span class="ab-sub" id="ph-sub">—</span></button>' +
+        '    <button class="abtn scare" id="btn-phase">AVANZAR FASE<span class="ab-sub" id="ph-sub">—</span></button>' +
         '    <button class="abbtn run" id="btn-run" disabled><span>¡CARRERA!</span><span class="cap-sub" id="run-sub">requiere FASE 3</span></button>' +
         "  </div>" +
         "</div>" +
@@ -110,7 +110,7 @@ const Anim = {
       document.getElementById("btn-capture").onclick = () => this.capture();
     } else {
       box.innerHTML =
-        '<button class="abtn scare" id="btn-ability"><span class="ab-ico">💀</span> HABILIDAD: SUSTO<span class="ab-sub" id="ab-sub">—</span></button>' +
+        '<button class="abtn scare" id="btn-ability">HABILIDAD: SUSTO<span class="ab-sub" id="ab-sub">—</span></button>' +
         '<button class="abbtn capture" id="btn-capture" disabled><span>¡CAPTURA!</span><span class="cap-sub" id="cap-sub">acércate a una puerta</span></button>';
       document.getElementById("btn-ability").onclick = () => this.useAbility();
       document.getElementById("btn-capture").onclick = () => this.capture();
@@ -301,7 +301,7 @@ const Anim = {
     if (loc === "kitchen") {
       // a oscuras, entre cacharros
       locLbl.textContent = "COCINA — A OSCURAS";
-      html = '<div class="scene-dark"><div class="sd-big">🔇 A OSCURAS</div>' +
+      html = '<div class="scene-dark"><div class="sd-big">A OSCURAS</div>' +
         '<div>Chacharros y ollas… el guardia solo puede OÍRTE.</div>' +
         '<div class="sd-hint">Desde aquí puedes rondar hasta el Pasillo Este.</div></div>';
       if (!this.kitchenL) this.kitchenL = AudioMan.loop("kitchen", 0.55);
@@ -355,7 +355,7 @@ const Anim = {
     badge.hidden = false;
     badge.className = "door-badge " + (closed ? "closed" : "open");
     badge.innerHTML = (me.n === "ldoor" || me.n === "rdoor" ? "" : "AL FINAL DEL PASILLO: ") +
-      name + (closed ? " — 🔒 CERRADA" : " — 🔓 ABIERTA");
+      name + (closed ? " — CERRADA" : " — ABIERTA");
   },
 
   /* ---------- Botones de acción ---------- */
@@ -420,7 +420,7 @@ const Anim = {
     const mine = m.by === this.myChar;
     switch (m.e) {
       case "scare":
-        if (mine) FX.toast("¡Susto enviado al guardia! 📵", 2400, "good");
+        if (mine) FX.toast("¡Susto enviado al guardia! Su monitor queda cegado.", 2400, "good");
         else FX.toast(CHARS[m.by].name + " ha usado su susto.", 2200);
         break;
       case "moved":
@@ -440,7 +440,7 @@ const Anim = {
         else FX.toast("Captura bloqueada por el guardia.", 2400);
         break;
       case "retreat":
-        if (mine) { FX.toast("⏱ ¡TIEMPO AGOTADO! Repliegue forzoso…", 3000, "bad"); AudioMan.play("steps", 0.9); }
+        if (mine) { FX.toast("¡TIEMPO AGOTADO! Repliegue forzoso…", 3000, "bad"); AudioMan.play("steps", 0.9); }
         else FX.toast(CHARS[m.by].name + " tuvo que retirarse de la puerta.", 2400);
         break;
       case "powerout":

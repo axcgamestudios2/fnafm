@@ -13,30 +13,31 @@
 
 <!-- MENÚ -->
 <section class="screen active" id="s-menu">
-  <div class="menu-bg"></div>
+  <div class="menu-noise"></div>
+  <div class="menu-face-box"><img src="resources/img/menu_face.png" alt="" draggable="false"></div>
   <div class="menu-box">
     <h1 class="game-title">FIVE NIGHTS<br>AT FREDDY'S</h1>
-    <div class="game-sub">— MULTIJUGADOR —</div>
+    <div class="game-sub">MULTIJUGADOR</div>
     <div class="menu-form">
       <label>TU NOMBRE</label>
       <input id="inp-name" maxlength="12" placeholder="Jugador" autocomplete="off">
       <label>CÓDIGO DE SALA (para unirte)</label>
       <input id="inp-code" maxlength="5" placeholder="ABC12" autocomplete="off" class="code-inp"
              style="text-transform:uppercase">
-      <button class="mbtn create" id="btn-create">🛡️ CREAR SALA (serás el GUARDIA)</button>
-      <button class="mbtn join" id="btn-join">🐻 UNIRSE A UNA SALA</button>
+      <button class="mbtn create" id="btn-create">CREAR SALA — SERÁS EL GUARDIA</button>
+      <button class="mbtn join" id="btn-join">UNIRSE A UNA SALA</button>
     </div>
     <div class="menu-note">
-      El anfitrión crea la sala y comparte el <b>código</b> (2-5 jugadores).<br>
-      El anfitrión es el <b>Guardia</b>; el resto controla a <b>Freddy, Bonnie, Chica o Foxy</b>,
-      avanzando <b>puerta a puerta</b> (sin mapa) hasta la oficina. ¡En la puerta no se puede acampar!
+      El anfitrión es el <b>guardia</b> (oficina clásica: gira con el ratón, botones en la pared).<br>
+      El resto controla animatrónicos: avanzan <b>puerta a puerta</b> hasta la oficina.<br>
+      Solo juegan los animatrónicos con jugador — nada de relleno.
     </div>
   </div>
-  <div class="vignette-layer"></div>
 </section>
 
 <!-- LOBBY -->
 <section class="screen" id="s-lobby">
+  <div class="menu-noise"></div>
   <div class="lobby-wrap">
     <div class="lobby-left">
       <h2 id="lobby-title">SALA</h2>
@@ -49,7 +50,7 @@
         <div id="lobby-players"></div>
       </div>
       <div id="start-zone">
-        <button id="btn-start" class="mbtn create" disabled>🌙 EMPEZAR LA NOCHE</button>
+        <button id="btn-start" class="mbtn create" disabled>EMPEZAR LA NOCHE</button>
         <div id="start-note" class="start-note">Esperando jugadores…</div>
       </div>
     </div>
@@ -63,8 +64,7 @@
 <!-- GUARDIA -->
 <section class="screen" id="s-guard">
   <div id="office-view"></div>
-  <div id="powerout-fx"><div class="po-freddy"><img src="resources/img/js_freddy.png" alt=""></div></div>
-  <div id="cam-help"> ESPACIO cámaras · A/D puertas · Z/X luces (mantener)</div>
+  <div id="powerout-fx"><div class="po-face"><img src="resources/img/jsq_freddy_00.png" alt=""></div></div>
 </section>
 
 <!-- ANIMATRÓNICO -->
@@ -76,14 +76,15 @@
 
 <!-- FIN -->
 <section class="screen" id="s-end">
+  <div class="menu-noise"></div>
   <div class="end-wrap">
     <img id="end-img" alt="">
     <h2 id="end-title">—</h2>
     <div id="end-sub"></div>
     <div id="end-stats"></div>
     <div class="end-btns">
-      <button id="btn-again" class="mbtn create">🔁 OTRA NOCHE</button>
-      <button id="btn-exit" class="mbtn join">⏻ SALIR DE LA SALA</button>
+      <button id="btn-again" class="mbtn create">OTRA NOCHE</button>
+      <button id="btn-exit" class="mbtn join">SALIR DE LA SALA</button>
       <div id="wait-host" style="display:none">…esperando al anfitrión</div>
     </div>
   </div>

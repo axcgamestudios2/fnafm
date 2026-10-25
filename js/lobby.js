@@ -19,10 +19,11 @@ const Lobby = {
   /* ---- HOST ---- */
   hostFlow() {
     const code = Net.randCode();
-    Lobby.show();
+    Lobby.show(); // pantalla visible durante la conexión (se re-render al abrir)
     document.getElementById("room-code").textContent = "·····";
     setStatus("Creando sala vía PeerJS…");
     Net.hostRoom(code, (okCode) => {
+      Lobby.show(); // re-render con isHost ya activo (título + nota de guardia)
       document.getElementById("room-code").textContent = okCode;
       Game.addPlayer(1, App.myName + " (tú)");
       Game.players[1].char = null;
@@ -58,10 +59,10 @@ const Lobby = {
       row.className = "player-row" + (+pid === mine ? " me" : "") + (p.connected ? "" : " off");
       // tarjeta: nombre + rol
       const roleTxt = (+pid === 1)
-        ? "🛡️ GUARDIA (anfitrión)"
-        : (p.char ? "🐻 " + CHARS[p.char].name + " — " + CHARS[p.char].fullName : "… eligiendo");
+        ? "GUARDIA (anfitrión)"
+        : (p.char ? CHARS[p.char].name + " — " + CHARS[p.char].fullName : "… eligiendo animatrónico");
       row.innerHTML =
-        '<div class="pr-name">' + esc(p.name) + (p.connected ? "" : " ⚠") + "</div>" +
+        '<div class="pr-name">' + esc(p.name) + (p.connected ? "" : " (desconectado)") + "</div>" +
         '<div class="pr-role">' + roleTxt + "</div>";
       list.appendChild(row);
     }
@@ -77,7 +78,7 @@ const Lobby = {
     const wrap = document.getElementById("char-picker");
     wrap.innerHTML = "";
     if (Net.isHost) {
-      wrap.innerHTML = '<div class="host-note">Tú eres el <b>GUARDIA</b>. El resto elige animatrónico (o se le asigna uno al empezar).</div>';
+      wrap.innerHTML = '<div class="host-note">Tú eres el <b>GUARDIA</b>.<br>Gira la oficina con el ratón, usa los botones de la pared y aguanta hasta las 6 AM.<br>Los demás eligen animatrónico (o se les asigna uno al empezar).</div>';
       return;
     }
     for (const chId of CHAR_ORDER) {
