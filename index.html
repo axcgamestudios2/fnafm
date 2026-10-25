@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>FNAF 1 Multijugador</title>
+<link rel="icon" href="resources/img/menu_face.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== PANTALLAS ==================== -->
+
+<!-- MENÚ -->
+<section class="screen active" id="s-menu">
+  <div class="menu-bg"></div>
+  <div class="menu-box">
+    <h1 class="game-title">FIVE NIGHTS<br>AT FREDDY'S</h1>
+    <div class="game-sub">— MULTIJUGADOR —</div>
+    <div class="menu-form">
+      <label>TU NOMBRE</label>
+      <input id="inp-name" maxlength="12" placeholder="Jugador" autocomplete="off">
+      <label>CÓDIGO DE SALA (para unirte)</label>
+      <input id="inp-code" maxlength="5" placeholder="ABC12" autocomplete="off" class="code-inp"
+             style="text-transform:uppercase">
+      <button class="mbtn create" id="btn-create">🛡️ CREAR SALA (serás el GUARDIA)</button>
+      <button class="mbtn join" id="btn-join">🐻 UNIRSE A UNA SALA</button>
+    </div>
+    <div class="menu-note">
+      El anfitrión crea la sala y comparte el <b>código</b> (2-5 jugadores).<br>
+      El anfitrión es el <b>Guardia</b>; el resto controla a <b>Freddy, Bonnie, Chica o Foxy</b>
+      moviéndose por las cámaras hasta la puerta de la oficina.
+    </div>
+  </div>
+  <div class="vignette-layer"></div>
+</section>
+
+<!-- LOBBY -->
+<section class="screen" id="s-lobby">
+  <div class="lobby-wrap">
+    <div class="lobby-left">
+      <h2 id="lobby-title">SALA</h2>
+      <div class="code-label">CÓDIGO DE SALA</div>
+      <div class="room-code" id="room-code">·····</div>
+      <div class="code-hint">Compártelo con tus amigos (2-5 jugadores)</div>
+      <div id="lobby-status" class="lobby-status"></div>
+      <div class="lobby-players-wrap">
+        <div class="lp-title">JUGADORES <span id="lobby-count">1/5</span></div>
+        <div id="lobby-players"></div>
+      </div>
+      <div id="start-zone">
+        <button id="btn-start" class="mbtn create" disabled>🌙 EMPEZAR LA NOCHE</button>
+        <div id="start-note" class="start-note">Esperando jugadores…</div>
+      </div>
+    </div>
+    <div class="lobby-right">
+      <div class="lp-title">ELIGE TU ANIMATRÓNICO</div>
+      <div id="char-picker" class="char-picker"></div>
+    </div>
+  </div>
+</section>
+
+<!-- GUARDIA -->
+<section class="screen" id="s-guard">
+  <div id="office-view"></div>
+  <div id="powerout-fx"><div class="po-freddy"><img src="resources/img/js_freddy.png" alt=""></div></div>
+  <div id="cam-help"> ESPACIO cámaras · A/D puertas · Z/X luces (mantener)</div>
+</section>
+
+<!-- ANIMATRÓNICO -->
+<section class="screen" id="s-anim">
+  <div id="anim-head"></div>
+  <div id="anim-status"></div>
+  <div id="anim-main"></div>
+</section>
+
+<!-- FIN -->
+<section class="screen" id="s-end">
+  <div class="end-wrap">
+    <img id="end-img" alt="">
+    <h2 id="end-title">—</h2>
+    <div id="end-sub"></div>
+    <div id="end-stats"></div>
+    <div class="end-btns">
+      <button id="btn-again" class="mbtn create">🔁 OTRA NOCHE</button>
+      <button id="btn-exit" class="mbtn join">⏻ SALIR DE LA SALA</button>
+      <div id="wait-host" style="display:none">…esperando al anfitrión</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== CAPAS FX ==================== -->
+<div id="monitor"></div>
+<div id="fx-jumpscare"><img alt="susto"></div>
+<div id="fx-static"></div>
+<div id="fx-toast"></div>
+
+<!-- ==================== SCRIPTS ==================== -->
+<script src="peer.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/net.js"></script>
+<script src="js/game.js"></script>
+<script src="js/lobby.js"></script>
+<script src="js/guard.js"></script>
+<script src="js/anim.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
