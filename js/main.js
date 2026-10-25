@@ -243,6 +243,7 @@ const App = {
 
     const showScreen = () => {
       if (this.role === "guard") { Guard.forceMonitorDown(); Guard.exit(); }
+      if (this.role === "anim") Anim.exit();
       document.getElementById("powerout-fx").classList.remove("active");
       UI.show("s-end");
       const title = document.getElementById("end-title");
@@ -293,6 +294,7 @@ const App = {
     this.snap = null;
     this.gameOverMsg = false;
     if (this.role === "guard") Guard.exit();
+    if (this.role === "anim") Anim.exit();
     Net.broadcast({ t: "relobby" });
     UI.show("s-lobby");
     Lobby.show();

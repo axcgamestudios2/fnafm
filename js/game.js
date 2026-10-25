@@ -76,6 +76,7 @@ const Game = {
         cd: 2 + this.rand(0, 3),          // pequeño cd inicial aleatorio
         phase: c.phaseOnly ? 1 : null,
         running: false, runStart: 0, runNode: null,
+        doorAt: null,                     // instante (s.t) de llegada a una puerta de oficina
         ab: { ready: false, nextAt: this.rand(CFG.ABILITY_FIRST_MIN, CFG.ABILITY_FIRST_MAX) },
         lastFrom: c.start,
       };
@@ -150,6 +151,28 @@ const Game = {
       }
     }
 
+    /* ---- Estancia máxima en la puerta de la oficina ----
+       Si un animatrónico agota el tiempo en la puerta, se le
+       FUERZA el repliegue a la esquina del pasillo. */
+    if (!s.over) {
+      for (const ch in s.anims) {
+        const a = s.anims[ch];
+        const term = a.node === "ldoor" ? "L" : a.node === "rdoor" ? "R" : null;
+        if (term && a.doorAt !== null && s.t - a.doorAt >= CFG.DOOR_STAY_SEC) {
+          if (CHARS[ch].phaseOnly) {
+            // Foxy: vuelve a la Cala Pirata a empezar de nuevo
+            a.node = "cove"; a.phase = 1; a.cd = s.t + CFG.FOXY_PHASE_CD + 3;
+          } else {
+            a.node = term === "L" ? "westcorner" : "eastcorner";
+            a.cd = s.t + CHARS[ch].cooldown;   // castigo: cooldown completo
+          }
+          a.doorAt = null;
+          a.lastFrom = term === "L" ? "ldoor" : "rdoor";
+          this.ev("retreat", { by: ch });
+        }
+      }
+    }
+
     /* ---- Carrera de Foxy ---- */
     const fx = s.anims.foxy;
     if (fx && fx.running && !s.over) {
@@ -163,10 +186,12 @@ const Game = {
           // puerta cerrada a tiempo: golpes y repliegue
           s.power = Math.max(0, s.power - CFG.FOXY_BANG_PENALTY);
           fx.node = "cove"; fx.phase = 1; fx.cd = CFG.FOXY_PHASE_CD + 3;
+          fx.doorAt = null;
           s.stats.runs++;
           this.ev("bang");
         } else {
           fx.node = "ldoor"; // ¡a la puerta! captura disponible
+          fx.doorAt = s.t;   // el temporizador de estancia empieza a correr
           this.ev("atdoor", { by: "foxy" });
         }
       }
@@ -197,9 +222,11 @@ const Game = {
         if (!canGoTo(charId, to)) return;               // lado permitido
         a.lastFrom = a.node;
         a.node = to;
+        a.doorAt = isTerminal(to) ? s.t : null;         // temporizador de estancia en puerta
         a.cd = s.t + CHARS[charId].cooldown;
         s.stats.moves++;
         this.ev("moved", { by: charId, from: a.lastFrom, to });
+        if (isTerminal(to)) this.ev("atdoor", { by: charId });
         return;
       }
       case "phase": { // Foxy avanza de fase
@@ -242,8 +269,13 @@ const Game = {
         const doorClosed = term === "L" ? s.guard.dL : s.guard.dR;
         if (doorClosed) {
           // el guardia cerró a tiempo: captura bloqueada, repliegue
-          a.node = term === "L" ? "westcorner" : "eastcorner";
-          a.cd = s.t + CHARS[charId].cooldown;
+          if (CHARS[charId].phaseOnly) {
+            a.node = "cove"; a.phase = 1; a.cd = s.t + CFG.FOXY_PHASE_CD + 3;
+          } else {
+            a.node = term === "L" ? "westcorner" : "eastcorner";
+            a.cd = s.t + CHARS[charId].cooldown;
+          }
+          a.doorAt = null;
           s.stats.blocked++;
           this.ev("blocked", { by: charId });
         } else {
@@ -308,6 +340,9 @@ const Game = {
         abR: a.ab.ready ? 0 : Math.max(0, +(a.ab.nextAt - s.t).toFixed(0)),
         running: a.running,
         phase: a.phase,
+        dT: (a.node === "ldoor" || a.node === "rdoor") && a.doorAt !== null
+              ? Math.max(0, +(CFG.DOOR_STAY_SEC - (s.t - a.doorAt)).toFixed(1))
+              : null,
       };
     }
     return {

@@ -40,25 +40,29 @@ const CFG = {
 
   /* ---- Victoria por captura ---- */
   CAPTURE_WINDOW_MS: 1500,   // margen de gracia anti-doble-click
+
+  /* ---- Estancia máxima en la puerta de la oficina ---- */
+  DOOR_STAY_SEC: 12,         // s en la puerta antes del repliegue FORZOSO
+  DOOR_STAY_WARN_SEC: 4,     // s finales en rojo parpadeante
 };
 
 /* ============================================================
    LOCACIONES (nodos de movimiento) — mapa del FNAF 1
    ============================================================ */
 const LOCS = {
-  stage:      { cam: "1A", name: "Show Stage",      short: "Escenario",  base: "stage_empty",   x: 400, y: 30,  w: 225, h: 85  },
-  backstage:  { cam: "5",  name: "Backstage",        short: "Backstage",  base: "backstage",     x: 240, y: 40,  w: 130, h: 90  },
-  dining:     { cam: "1B", name: "Dining Area",      short: "Comedor",    base: "dining",        x: 330, y: 140, w: 340, h: 120 },
-  cove:       { cam: "1C", name: "Pirate Cove",      short: "Cala Pirata",base: "cove_closed",   x: 175, y: 150, w: 130, h: 105, foxyOnly: true },
-  kitchen:    { cam: "6",  name: "Kitchen",          short: "Cocina",     base: null, audioOnly: true, x: 700, y: 140, w: 110, h: 90 },
-  restrooms:  { cam: "7",  name: "Restrooms",        short: "Baños",      base: "restrooms",     x: 825, y: 140, w: 140, h: 90  },
-  closet:     { cam: "3",  name: "Supply Closet",    short: "Almacén",    base: "closet",        x: 205, y: 270, w: 115, h: 105 },
-  westhall:   { cam: "2A", name: "West Hall",        short: "Pasillo O",  base: "westhall",      x: 340, y: 275, w: 105, h: 150 },
-  westcorner: { cam: "2B", name: "W. Hall Corner",   short: "Esq. Oeste", base: "westcorner",    x: 340, y: 440, w: 105, h: 80  },
-  easthall:   { cam: "4A", name: "East Hall",        short: "Pasillo E",  base: "easthall",      x: 700, y: 275, w: 105, h: 150 },
-  eastcorner: { cam: "4B", name: "E. Hall Corner",   short: "Esq. Este",  base: "eastcorner",    x: 700, y: 440, w: 105, h: 80  },
-  ldoor:      { cam: null, name: "Puerta Izquierda", short: "P. IZQ",     base: null, terminal: "L", x: 470, y: 465, w: 70, h: 55 },
-  rdoor:      { cam: null, name: "Puerta Derecha",   short: "P. DCHA",    base: null, terminal: "R", x: 600, y: 465, w: 70, h: 55 },
+  stage:      { cam: "1A", name: "Show Stage",      short: "Escenario",  base: "stage_empty",   x: 400, y: 30,  w: 225, h: 85,  dest: "AL ESCENARIO" },
+  backstage:  { cam: "5",  name: "Backstage",        short: "Backstage",  base: "backstage",     x: 240, y: 40,  w: 130, h: 90,  dest: "AL BACKSTAGE" },
+  dining:     { cam: "1B", name: "Dining Area",      short: "Comedor",    base: "dining",        x: 330, y: 140, w: 340, h: 120, dest: "AL COMEDOR" },
+  cove:       { cam: "1C", name: "Pirate Cove",      short: "Cala Pirata",base: "cove_closed",   x: 175, y: 150, w: 130, h: 105, foxyOnly: true, dest: "A LA CALA PIRATA" },
+  kitchen:    { cam: "6",  name: "Kitchen",          short: "Cocina",     base: null, audioOnly: true, x: 700, y: 140, w: 110, h: 90, dest: "A LA COCINA" },
+  restrooms:  { cam: "7",  name: "Restrooms",        short: "Baños",      base: "restrooms",     x: 825, y: 140, w: 140, h: 90,  dest: "A LOS BAÑOS" },
+  closet:     { cam: "3",  name: "Supply Closet",    short: "Almacén",    base: "closet",        x: 205, y: 270, w: 115, h: 105, dest: "AL ALMACÉN" },
+  westhall:   { cam: "2A", name: "West Hall",        short: "Pasillo O",  base: "westhall",      x: 340, y: 275, w: 105, h: 150, dest: "AL PASILLO OESTE" },
+  westcorner: { cam: "2B", name: "W. Hall Corner",   short: "Esq. Oeste", base: "westcorner",    x: 340, y: 440, w: 105, h: 80,  dest: "A LA ESQUINA OESTE" },
+  easthall:   { cam: "4A", name: "East Hall",        short: "Pasillo E",  base: "easthall",      x: 700, y: 275, w: 105, h: 150, dest: "AL PASILLO ESTE" },
+  eastcorner: { cam: "4B", name: "E. Hall Corner",   short: "Esq. Este",  base: "eastcorner",    x: 700, y: 440, w: 105, h: 80,  dest: "A LA ESQUINA ESTE" },
+  ldoor:      { cam: null, name: "Puerta Izquierda", short: "P. IZQ",     base: null, terminal: "L", x: 470, y: 465, w: 70, h: 55, dest: "A LA PUERTA IZQUIERDA" },
+  rdoor:      { cam: null, name: "Puerta Derecha",   short: "P. DCHA",    base: null, terminal: "R", x: 600, y: 465, w: 70, h: 55, dest: "A LA PUERTA DERECHA" },
 };
 const OFFICE_MAP = { x: 470, y: 530, w: 200, h: 45 }; // posición "YOU" (solo estética)
 
@@ -166,3 +170,28 @@ function canGoTo(charId, locId) {
 
 /* Tecla del set de personajes presentes para lookup de combos */
 function comboKey(chars) { return chars.slice().sort().join(","); }
+
+/* ============================================================
+   PUERTAS DE SALIDA — lado de pantalla donde se dibuja la placa.
+   Se calcula con la geografía real del mapa: la puerta que lleva
+   a una sala se dibuja en el borde de pantalla correspondiente a
+   su dirección relativa (izquierda/derecha/arriba/abajo).
+   ============================================================ */
+function locCenter(id) {
+  const L = LOCS[id];
+  return { cx: L.x + L.w / 2, cy: L.y + L.h / 2 };
+}
+
+function exitZone(from, to) {
+  const A = locCenter(from), B = locCenter(to);
+  const dx = B.cx - A.cx, dy = B.cy - A.cy;
+  if (Math.abs(dx) < 45 && Math.abs(dy) < 45) return "bottom"; // mismo sitio
+  if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? "right" : "left";
+  return dy > 0 ? "bottom" : "top";
+}
+
+/* Salidas jugables: vecinos contiguos que el personaje puede pisar */
+function exitsFor(charId, from) {
+  const list = ADJ[from] || [];
+  return list.filter(to => canGoTo(charId, to));
+}
