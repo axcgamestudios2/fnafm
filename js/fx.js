@@ -49,6 +49,30 @@ const FX = {
     this.playJumpscare(charId, 1700, true, then);
   },
 
+  /* ---------- Secuencia de inicio de noche (auténtica) ----------
+     Periódico "SE BUSCA" -> pantalla "12 AM / Noche 1", como el original. */
+  nightIntro(done) {
+    const ov = document.getElementById("night-intro");
+    if (!ov) { if (done) done(); return; }
+    ov.innerHTML = '<img src="' + IMG("newspaper") + '" alt="">';
+    ov.classList.add("paper");
+    ov.hidden = false;
+    AudioMan.play("click", 0.5);
+    setTimeout(() => {
+      ov.classList.remove("paper");
+      ov.innerHTML =
+        '<div class="ni-time">12 AM</div>' +
+        '<div class="ni-night">Noche 1</div>';
+      ov.classList.add("clock");
+      setTimeout(() => {
+        ov.hidden = true;
+        ov.classList.remove("clock");
+        ov.innerHTML = "";
+        if (done) done();
+      }, 2100);
+    }, 2400);
+  },
+
   /* ---------- Toast ---------- */
   toast(msg, ms = 2600, kind = "") {
     const t = document.getElementById("fx-toast");

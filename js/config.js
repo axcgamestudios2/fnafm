@@ -191,6 +191,39 @@ const FOXY_PHASE_IMG = {
 };
 
 /* ============================================================
+   MAPA ORIGINAL DEL MONITOR (M0013 del juego auténtico, 404x404)
+   Posiciones de los botones CAM en % sobre el plano.
+   ============================================================ */
+const MAP_IMG = "map_floorplan";
+const MAP_BTN_POS = {                    // {x,y} en % del plano (0-100)
+  stage:      { x: 44.6, y: 15.1 },     // CAM 1A — Show Stage
+  dining:     { x: 44.8, y: 36.9 },     // CAM 1B — Dining Area
+  cove:       { x: 10.9, y: 46.5 },     // CAM 1C — Pirate Cove
+  westhall:   { x: 31.7, y: 68.1 },     // CAM 2A — West Hall
+  westcorner: { x: 31.7, y: 85.4 },     // CAM 2B — W. Hall Corner
+  closet:     { x: 18.8, y: 70.0 },     // CAM 3  — Supply Closet
+  easthall:   { x: 57.4, y: 68.1 },     // CAM 4A — East Hall
+  eastcorner: { x: 57.4, y: 85.4 },     // CAM 4B — E. Hall Corner
+  backstage:  { x: 7.7,  y: 28.2 },     // CAM 5  — Backstage
+  kitchen:    { x: 80.7, y: 39.4 },     // CAM 6  — Kitchen
+  restrooms:  { x: 91.1, y: 43.3 },     // CAM 7  — Restrooms
+};
+
+/* ============================================================
+   SECUENCIAS ANIMADAS DE CÁMARA — planos icónicos del original:
+   Bonnie ocupando el Pasillo Oeste (primerísimo plano) y Freddy
+   clavando la mirada en la Esquina Este. Se animan en el monitor
+   del guardia mientras el personaje esté (o esté CAMINANDO) ahí.
+   ============================================================ */
+const CAM_SEQ = {
+  westhall:   { bonnie: Array.from({ length: 12 }, (_, i) => "jsq_bonnie_" + String(i).padStart(2, "0")),
+                foxy: ["cove_run1", "cove_run2", "cove_run3", "cove_run4"] },   // ¡Foxy esprintando!
+  westcorner: { foxy: ["cove_run1", "cove_run2", "cove_run3", "cove_run4"] },
+  eastcorner: { freddy: Array.from({ length: 10 }, (_, i) => "freddy_stare_" + String(i).padStart(2, "0")) },
+};
+const CAM_SEQ_MS = 620;   // ms por frame de la secuencia de cámara
+
+/* ============================================================
    HELPERS
    ============================================================ */
 function locName(id)  { return LOCS[id] ? LOCS[id].name : id; }

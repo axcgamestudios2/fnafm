@@ -122,10 +122,13 @@ const App = {
     // host = guardia
     Game.guardInput = Guard.input;
     App.gameVariants = Game.variants;
-    Game.startLoops();
     this.broadcastStart();
     this.enterGame("guard", null);
-    FX.toast("La noche ha comenzado. ¡Sobrevive hasta las 6 AM!", 3400);
+    // secuencia de inicio auténtica: periódico -> 12 AM / Noche 1
+    FX.nightIntro(() => {
+      Game.startLoops(); // el tiempo empieza tras la intro
+      FX.toast("La noche ha comenzado. ¡Sobrevive hasta las 6 AM!", 3400);
+    });
   },
 
   broadcastStart() {
@@ -181,7 +184,10 @@ const App = {
         this.gameVariants = m.variants || {};
         const myChar = m.chars[Net.myId];
         this.enterGame("anim", myChar);
-        FX.toast("La noche ha comenzado. ¡Caza antes de las 6 AM!", 3400);
+        // secuencia de inicio auténtica también para animatrónicos
+        FX.nightIntro(() => {
+          FX.toast("La noche ha comenzado. ¡Caza antes de las 6 AM!", 3400);
+        });
         break;
       }
       case "snap": {

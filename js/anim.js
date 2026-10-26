@@ -351,11 +351,16 @@ const Anim = {
     // estática de transición al partir (auténtica del FNAF 1)
     this.staticBurstLocal(400);
     AudioMan.play("camSw", 0.7);
-    // la vista de destino avanza hacia ti: zoom frontal progresivo
+    // la vista de destino avanza hacia ti: zoom frontal progresivo.
+    // En PASILLOS se arranca más lejos (recorres el corredor entero).
     const img = layer.querySelector(".walk-img");
+    const hall = to === "westhall" || to === "easthall" ||
+                 to === "westcorner" || to === "eastcorner";
+    const z0 = hall ? 0.88 : 1.0;
+    const z1 = hall ? 1.26 : 1.3;
     if (img && img.animate) img.animate([
-      { transform: "scale(1.0)", filter: "brightness(0.78) contrast(1.12)" },
-      { transform: "scale(1.3)", filter: "brightness(0.95) contrast(1.06)" },
+      { transform: "scale(" + z0 + ")", filter: "brightness(0.78) contrast(1.12)" },
+      { transform: "scale(" + z1 + ")", filter: "brightness(0.95) contrast(1.06)" },
     ], { duration: ms, fill: "both", easing: "ease-in" });
     // pasos en bucle y balanceo de cabeza
     this.walkAudio = AudioMan.loop("steps", 0.8);

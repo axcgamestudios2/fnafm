@@ -12,6 +12,8 @@ const Guard = {
   jamUntil: 0,         // RISA de Freddy: controles de puerta/luz atascados
   jamT: null,
   blindUntilLocal: 0,  // SUSTO inofensivo: monitor cegado
+  camSeqTimer: null,   // secuencia animada de cámara en marcha
+  camSeqKey: null,
   camVar: {},
 
   /* entrada al modo guardia */
@@ -45,6 +47,7 @@ const Guard = {
     if (this.kitchenL) this.kitchenL.stop();
     if (this.jingle) { this.jingle.stop(); this.jingle = null; }
     this.fan = this.staticL = this.kitchenL = null;
+    this.stopCamSeq();
   },
 
   /* ---------- Construcción de la oficina ---------- */
@@ -102,32 +105,34 @@ const Guard = {
     this.renderDoors();
   },
 
-  /* ---------- Construcción del monitor ---------- */
+  /* ---------- Construcción del monitor (SISTEMA ORIGINAL) ----------
+     Pantalla completa con la imagen de la cámara, etiqueta CAM arriba-
+     izquierda y el mapa auténtico (M0013) abajo-derecha con sus botones. */
   buildMonitor() {
     const mon = document.getElementById("monitor");
     mon.innerHTML =
-      '<div class="mon-frame">' +
-      '  <div class="mon-head">' +
-      '    <span class="rec-dot"></span> REC' +
-      '    <span id="mon-loc">CAM —</span>' +
-      '    <span id="mon-clock">12 AM</span>' +
-      "  </div>" +
-      '  <div class="mon-body">' +
-      '    <div class="cam-feed" id="cam-feed"></div>' +
-      '    <div class="cam-side">' +
-      '      <div id="mon-map"></div>' +
-      '      <div class="cam-note" id="cam-note">Selecciona una cámara del mapa</div>' +
-      "    </div>" +
-      "  </div>" +
-      '  <div class="mon-foot">CÁMARA DE SEGURIDAD FAZBEAR — v1.4</div>' +
-      "</div>";
-    const map = buildMapSVG("guard");
-    document.getElementById("mon-map").appendChild(map);
-    map.addEventListener("roomtap", (e) => {
-      const loc = e.detail.loc;
-      if (!LOCS[loc].cam) return; // la oficina no es cámara
-      this.selectCam(loc);
-    });
+      '<div class="cam-full" id="cam-feed"></div>' +
+      '<div class="cam-label" id="mon-loc">CAM —</div>' +
+      '<div class="cam-mapbox" id="cam-mapbox">' +
+      '  <img src="' + IMG(MAP_IMG) + '" alt="mapa" draggable="false">' +
+      '  <div class="cam-btns" id="cam-btns"></div>' +
+      "</div>" +
+      '<div class="cam-static-noise"></div>';
+    // botones CAM sobre el plano auténtico
+    const box = document.getElementById("cam-btns");
+    for (const locId in MAP_BTN_POS) {
+      const L = LOCS[locId];
+      if (!L || !L.cam) continue;
+      const pos = MAP_BTN_POS[locId];
+      const b = document.createElement("button");
+      b.className = "cam-btn";
+      b.dataset.loc = locId;
+      b.textContent = "CAM " + L.cam;
+      b.style.left = pos.x + "%";
+      b.style.top = pos.y + "%";
+      b.onclick = () => this.selectCam(locId);
+      box.appendChild(b);
+    }
   },
 
   /* ---------- Input: puertas ---------- */
@@ -234,6 +239,7 @@ const Guard = {
       document.getElementById("monitor").classList.remove("up");
       if (this.staticL) { this.staticL.stop(); this.staticL = null; }
       if (this.kitchenL) { this.kitchenL.stop(); this.kitchenL = null; }
+      this.stopCamSeq();
     }
   },
 
@@ -243,7 +249,11 @@ const Guard = {
     this.input.monitor = loc;
     AudioMan.play("camSw", 0.6);
     FX.staticBurst(240);
-    document.getElementById("mon-loc").textContent = "CAM " + LOCS[loc].cam + " — " + LOCS[loc].name.toUpperCase();
+    document.getElementById("mon-loc").innerHTML =
+      "CAM " + LOCS[loc].cam + "<span class=\"cl-sub\">" + LOCS[loc].name.toUpperCase() + "</span>";
+    // botón activo en el mapa
+    document.querySelectorAll("#cam-btns .cam-btn").forEach(b =>
+      b.classList.toggle("active", b.dataset.loc === loc));
     this.renderFeed();
   },
 
@@ -275,52 +285,78 @@ const Guard = {
     return LOCS[loc].base;
   },
 
+  /* ---------- Render del feed (con CAMINATA VISIBLE) ----------
+     Los animatrónicos en tránsito SE VEN en las cámaras: salen de la
+     sala de origen y entran en la de destino a mitad del tramo. */
   renderFeed() {
     const loc = this.input.monitor;
     const feed = document.getElementById("cam-feed");
-    const note = document.getElementById("cam-note");
-    if (!loc) return;
+    if (!loc || !feed) return;
     const s = App.snap;
 
     // AVERÍA de Chica: estática total en todas las cámaras
     if (s && s.guard.camJamMs > 0) {
+      this.stopCamSeq();
       if (this.kitchenL) { this.kitchenL.stop(); this.kitchenL = null; }
       feed.innerHTML =
         '<div class="cam-jam">' +
         '<img src="' + IMG("monitor_static1") + '" alt="">' +
         '<img src="' + IMG("monitor_static2") + '" alt="">' +
         '<div class="cj-lbl">SEÑAL PERDIDA</div>' +
-        '<div class="cj-sub">AVERÍA EN EL SISTEMA DE CÁMARAS</div>' +
         "</div>";
-      note.textContent = "AVERÍA: no se ve nada hasta que se restablezca la señal…";
       return;
     }
 
-    // presentes (excluye a quien camina y a quien usa SIGILO)
+    // presentes: parados Y caminando (salen/entran) — excluye SIGILO
     const present = [];
     const hiddenHere = [];
     if (s) {
       for (const ch in s.anims) {
         const an = s.anims[ch];
-        if (an.w) continue;              // en tránsito
-        if (an.n !== loc) continue;
-        if (an.st) { hiddenHere.push(ch); continue; } // SIGILO de Bonnie
-        present.push(ch);
+        if (an.st) { // SIGILO de Bonnie: ni parado ni caminando
+          if (an.n === loc && !an.w) hiddenHere.push(ch);
+          continue;
+        }
+        if (an.w) {
+          // caminando: visible saliendo del origen (1ª mitad)
+          // y entrando en el destino (2ª mitad)
+          if (an.w.from === loc && an.w.p <= 0.55) present.push(ch);
+          else if (an.w.to === loc && an.w.p > 0.55) present.push(ch);
+          continue;
+        }
+        if (an.n === loc) present.push(ch);
       }
     }
     // cocina: solo audio
     if (LOCS[loc].audioOnly) {
-      feed.innerHTML = '<div class="cam-audioonly"><div>CÁMARA AVERIADA</div><div class="big">SOLO AUDIO</div>' +
-        (present.length ? '<div class="clatter">🔇 CACHARROS EN LA COCINA…</div>' : "") + "</div>";
+      this.stopCamSeq();
+      feed.innerHTML = '<div class="cam-audioonly"><div class="ao-top">CÁMARA DESACTIVADA</div><div class="big">SOLO AUDIO</div></div>';
       if (present.length && !this.kitchenL) this.kitchenL = AudioMan.loop("kitchen", 0.7);
       if (!present.length && this.kitchenL) { this.kitchenL.stop(); this.kitchenL = null; }
-      note.textContent = present.length ? "Se oyen cacharros… hay alguien en la cocina." : "Silencio.";
+      feed.classList.toggle("glitch", false);
       return;
     }
     if (this.kitchenL) { this.kitchenL.stop(); this.kitchenL = null; }
 
+    // secuencia animada icónica (Bonnie en Pasillo Oeste / Freddy en Esquina Este)
+    const seqs = CAM_SEQ[loc];
+    let seqChar = null;
+    if (seqs) {
+      for (const ch of present) if (seqs[ch]) { seqChar = ch; break; }
+    }
+    if (seqChar) {
+      this.startCamSeq(seqs[seqChar]);
+      feed.classList.toggle("glitch", false);
+      return;
+    }
+    this.stopCamSeq();
+
     const img = this.camImage(loc, present);
-    let html = '<img src="' + IMG(img) + '" alt="' + LOCS[loc].name + '">';
+    // parpadeo de estática auténtico cuando la escena cambia
+    // (alguien entra/sale de la cámara): como en el juego original
+    const changed = this._lastFeedImg !== undefined && this._lastFeedImg !== img;
+    this._lastFeedImg = img;
+    let html = '<img class="cf-img" src="' + IMG(img) + '" alt="' + LOCS[loc].name + '">';
     // overlay de presencia (cuando no hay combo auténtico con imagen)
     const comboUsed = this.comboIsAuthentic(loc, present);
     if (present.length && !comboUsed) {
@@ -328,18 +364,38 @@ const Guard = {
       for (const ch of present) {
         const c = CHARS[ch];
         html += '<div class="cp-chip" style="border-color:' + c.color + '">' +
-          '<img src="' + IMG(c.portrait) + '">' + c.name + "</div>";
+          '<img src="' + IMG(c.portrait) + '">' + c.name + (s.anims[ch].w ? " (caminando…)" : "") + "</div>";
       }
       html += "</div>";
     }
     feed.innerHTML = html;
+    if (changed) FX.staticBurst(140);
     // SIGILO de Bonnie: interferencia sutil en la sala donde está oculto
     feed.classList.toggle("glitch", hiddenHere.length > 0);
-    note.textContent = present.length
-      ? "¡Presencia detectada! (" + present.map(c => CHARS[c].name).join(", ") + ")"
-      : hiddenHere.length
-        ? "Interferencia extraña en la señal…"
-        : "Sin actividad visible.";
+  },
+
+  /* Secuencia animada de cámara en marcha (frames auténticos) */
+  startCamSeq(frames) {
+    const feed = document.getElementById("cam-feed");
+    if (!feed) return;
+    const key = frames[0];
+    if (this.camSeqKey === key) return; // ya en marcha
+    this.stopCamSeq();
+    this.camSeqKey = key;
+    let i = 0;
+    feed.innerHTML = '<img class="cf-img" src="' + IMG(frames[0]) + '" alt="">';
+    // la carrera de Foxy se anima mucho más rápido (es un esprint)
+    const ms = frames.length <= 4 ? 130 : CAM_SEQ_MS;
+    this.camSeqTimer = setInterval(() => {
+      i = (i + 1) % frames.length;
+      const im = feed.querySelector(".cf-img");
+      if (im) im.src = IMG(frames[i]);
+    }, ms);
+  },
+  stopCamSeq() {
+    clearInterval(this.camSeqTimer);
+    this.camSeqTimer = null;
+    this.camSeqKey = null;
   },
 
   comboIsAuthentic(loc, present) {
@@ -354,7 +410,6 @@ const Guard = {
   onSnap(s) {
     // reloj y energía
     document.getElementById("guard-clock").textContent = fmtClock(s.t);
-    document.getElementById("mon-clock").textContent = fmtClock(s.t);
     document.getElementById("guard-power-val").textContent = Math.ceil(s.power) + "%";
     document.getElementById("power-fill").style.width = Math.max(0, s.power) + "%";
     document.getElementById("power-fill").classList.toggle("low", s.power < 25);
@@ -432,6 +487,7 @@ const Guard = {
       document.getElementById("monitor").classList.remove("up");
       if (this.staticL) { this.staticL.stop(); this.staticL = null; }
       if (this.kitchenL) { this.kitchenL.stop(); this.kitchenL = null; }
+      this.stopCamSeq();
       AudioMan.play("camDown", 0.7);
     }
   },
