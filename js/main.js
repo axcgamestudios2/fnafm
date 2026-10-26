@@ -269,7 +269,7 @@ const App = {
         "<b>Sobreviviste hasta:</b> " + fmtClock(s ? s.t : 0) + " · " +
         Math.round((s ? s.t : 0) / CFG.NIGHT_SEC * 100) + "% de la noche<br>" +
         "<b>Energía restante:</b> " + (over.power != null ? over.power : "—") + "%<br>" +
-        (st ? "<b>Movimientos:</b> " + st.moves + " · <b>Sustos:</b> " + st.scares +
+        (st ? "<b>Movimientos:</b> " + st.moves + " · <b>Habilidades:</b> " + st.scares +
               " · <b>Corridas de Foxy:</b> " + st.runs + " · <b>Capturas bloqueadas:</b> " + st.blocked : "");
       document.getElementById("end-img").src = over.winner === "guard" ? IMG("sixam") : IMG("gameover" + (1 + Math.floor(Math.random() * 3)));
       // botones

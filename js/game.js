@@ -59,7 +59,7 @@ const Game = {
       t: 0,
       power: 100,
       powerOut: false, powerOutAt: null, poJinglePlayed: false,
-      guard: { dL: false, dR: false, liL: false, liR: false, mon: null, blindUntil: 0 },
+      guard: { dL: false, dR: false, liL: false, liR: false, mon: null, jamDoorsUntil: 0, camJamUntil: 0 },
       anims: {},
       stats: { moves: 0, blocked: 0, scares: 0, runs: 0 },
       over: null,
@@ -76,7 +76,10 @@ const Game = {
         cd: 2 + this.rand(0, 3),          // pequeño cd inicial aleatorio
         phase: c.phaseOnly ? 1 : null,
         running: false, runStart: 0, runNode: null,
+        walk: null,                       // caminata en curso {from,to,start,dur}
         doorAt: null,                     // instante (s.t) de llegada a una puerta de oficina
+        stealthUntil: 0,                  // Bonnie: invisible en cámaras
+        effUntil: 0,                      // fin del efecto de la habilidad (para el HUD)
         ab: { ready: false, nextAt: this.rand(CFG.ABILITY_FIRST_MIN, CFG.ABILITY_FIRST_MAX) },
         lastFrom: c.start,
       };
@@ -157,31 +160,50 @@ const Game = {
       s.powerOutAt = null;
     }
 
-    /* ---- Habilidad de susto: recargas aleatorias ---- */
+    /* ---- Habilidades: recarga fija por personaje ---- */
     for (const ch in s.anims) {
       const a = s.anims[ch];
       if (!a.ab.ready && s.t >= a.ab.nextAt && !s.over) {
-        a.ab.ready = true; // disponible en momentos aleatorios de la noche
+        a.ab.ready = true; // disponible periódicamente durante la noche
+      }
+    }
+
+    /* ---- Caminata: el movimiento se recorre A PIE ----
+       Durante el tramo el animatrónico está "en tránsito"
+       (no aparece en ninguna cámara); al llegar se hace efectivo. */
+    if (!s.over) {
+      for (const ch in s.anims) {
+        const a = s.anims[ch];
+        if (!a.walk) continue;
+        if (s.t >= a.walk.start + a.walk.dur) {
+          const to = a.walk.to;
+          a.node = to;
+          a.lastFrom = a.walk.from;
+          a.walk = null;
+          a.cd = s.t + CHARS[ch].cooldown;
+          a.doorAt = isTerminal(to) ? s.t : null;
+          this.ev("arrive", { by: ch, to: to, door: isTerminal(to) });
+        }
       }
     }
 
     /* ---- Estancia máxima en la puerta de la oficina ----
        Si un animatrónico agota el tiempo en la puerta, se le
-       FUERZA el repliegue a la esquina del pasillo. */
+       FUERZA el repliegue CAMINANDO a la esquina del pasillo. */
     if (!s.over) {
       for (const ch in s.anims) {
         const a = s.anims[ch];
         const term = a.node === "ldoor" ? "L" : a.node === "rdoor" ? "R" : null;
-        if (term && a.doorAt !== null && s.t - a.doorAt >= CFG.DOOR_STAY_SEC) {
+        if (term && !a.walk && a.doorAt !== null && s.t - a.doorAt >= CFG.DOOR_STAY_SEC) {
           if (CHARS[ch].phaseOnly) {
-            // Foxy: vuelve a la Cala Pirata a empezar de nuevo
+            // Foxy: vuelve de un salto a la Cala Pirata a empezar de nuevo
             a.node = "cove"; a.phase = 1; a.cd = s.t + CFG.FOXY_PHASE_CD + 3;
+            a.doorAt = null;
           } else {
-            a.node = term === "L" ? "westcorner" : "eastcorner";
-            a.cd = s.t + CHARS[ch].cooldown;   // castigo: cooldown completo
+            const back = term === "L" ? "westcorner" : "eastcorner";
+            a.walk = { from: a.node, to: back, start: s.t, dur: walkDur(a.node, back) };
+            a.doorAt = null;
           }
-          a.doorAt = null;
-          a.lastFrom = term === "L" ? "ldoor" : "rdoor";
           this.ev("retreat", { by: ch });
         }
       }
@@ -226,21 +248,19 @@ const Game = {
     const a = charId ? s.anims[charId] : null;
 
     switch (m.t) {
-      case "move": {
+      case "move": { // inicia la CAMINATA hacia la sala adyacente
         if (!a || s.over) return;
         const to = m.to;
         if (!LOCS[to]) return;
         if (a.cd > s.t) return;                        // cooldown
+        if (a.walk) return;                            // ya está caminando
         if (CHARS[charId].phaseOnly) return;            // Foxy usa fases, no nodos
         if (!ADJ[a.node] || !ADJ[a.node].includes(to)) return;   // adyacencia
         if (!canGoTo(charId, to)) return;               // lado permitido
-        a.lastFrom = a.node;
-        a.node = to;
-        a.doorAt = isTerminal(to) ? s.t : null;         // temporizador de estancia en puerta
-        a.cd = s.t + CHARS[charId].cooldown;
+        a.walk = { from: a.node, to: to, start: s.t, dur: walkDur(a.node, to) };
+        a.doorAt = null;                                // sale de la puerta si estaba
         s.stats.moves++;
-        this.ev("moved", { by: charId, from: a.lastFrom, to });
-        if (isTerminal(to)) this.ev("atdoor", { by: charId });
+        this.ev("walk", { by: charId, from: a.walk.from, to: to, dur: a.walk.dur });
         return;
       }
       case "phase": { // Foxy avanza de fase
@@ -266,28 +286,40 @@ const Game = {
         this.ev("foxyrun", { by: "foxy" });
         return;
       }
-      case "ability": { // susto inofensivo
+      case "ability": { // habilidad especial única por animatrónico
         if (!a || s.over) return;
         if (!a.ab.ready) return;
+        const ab = ABILITIES[charId];
+        if (!ab || ab.id === "run") return;            // Foxy: su habilidad es la carrera
         a.ab.ready = false;
-        a.ab.nextAt = s.t + this.rand(CFG.ABILITY_RE_MIN, CFG.ABILITY_RE_MAX);
-        s.guard.blindUntil = Date.now() + CFG.BLIND_MS; // ceguera del monitor del guardia
+        a.ab.nextAt = s.t + ab.cd;                      // recarga fija
+        a.effUntil = s.t + ab.dur;
         s.stats.scares++;
-        this.ev("scare", { by: charId });
+        if (ab.id === "laugh") {
+          s.guard.jamDoorsUntil = s.t + ab.dur;         // el guardia no puede usar puertas/luces
+          this.ev("laugh", { by: charId, dur: ab.dur });
+        } else if (ab.id === "stealth") {
+          a.stealthUntil = s.t + ab.dur;                // invisible en cámaras
+          this.ev("stealth", { by: charId, dur: ab.dur });
+        } else if (ab.id === "jam") {
+          s.guard.camJamUntil = s.t + ab.dur;           // estática total en el monitor
+          this.ev("jam", { by: charId, dur: ab.dur });
+        }
         return;
       }
       case "capture": { // acción final de captura en la puerta
         if (!a || s.over) return;
+        if (a.walk) return;                            // caminando no se puede capturar
         const term = a.node === "ldoor" ? "L" : a.node === "rdoor" ? "R" : null;
         if (!term) return;
         const doorClosed = term === "L" ? s.guard.dL : s.guard.dR;
         if (doorClosed) {
-          // el guardia cerró a tiempo: captura bloqueada, repliegue
+          // el guardia cerró a tiempo: captura bloqueada, repliegue CAMINANDO
           if (CHARS[charId].phaseOnly) {
             a.node = "cove"; a.phase = 1; a.cd = s.t + CFG.FOXY_PHASE_CD + 3;
           } else {
-            a.node = term === "L" ? "westcorner" : "eastcorner";
-            a.cd = s.t + CHARS[charId].cooldown;
+            const back = term === "L" ? "westcorner" : "eastcorner";
+            a.walk = { from: a.node, to: back, start: s.t, dur: walkDur(a.node, back) };
           }
           a.doorAt = null;
           s.stats.blocked++;
@@ -352,9 +384,15 @@ const Game = {
         n: a.node,
         cd: Math.max(0, +(a.cd - s.t).toFixed(1)),
         abR: a.ab.ready ? 0 : Math.max(0, +(a.ab.nextAt - s.t).toFixed(0)),
+        abA: Math.max(0, +(a.effUntil - s.t).toFixed(1)),   // habilidad activa (s restantes)
+        st: !!(a.stealthUntil && s.t < a.stealthUntil),     // sigilo activo (Bonnie)
+        w: a.walk ? {
+            from: a.walk.from, to: a.walk.to, dur: +a.walk.dur.toFixed(1),
+            p: Math.min(1, +((s.t - a.walk.start) / a.walk.dur).toFixed(2)),
+          } : null,
         running: a.running,
         phase: a.phase,
-        dT: (a.node === "ldoor" || a.node === "rdoor") && a.doorAt !== null
+        dT: (a.node === "ldoor" || a.node === "rdoor") && !a.walk && a.doorAt !== null
               ? Math.max(0, +(CFG.DOOR_STAY_SEC - (s.t - a.doorAt)).toFixed(1))
               : null,
       };
@@ -370,7 +408,8 @@ const Game = {
           dL: s.guard.dL, dR: s.guard.dR,
           liL: s.guard.liL, liR: s.guard.liR,
           mon: s.guard.mon,
-          blindMs: Math.max(0, s.guard.blindUntil - Date.now()),
+          jamDoorsMs: Math.max(0, +((s.guard.jamDoorsUntil || 0) - s.t).toFixed(1)) * 1000,
+          camJamMs:  Math.max(0, +((s.guard.camJamUntil  || 0) - s.t).toFixed(1)) * 1000,
         },
         anims: anims,
         stats: s.stats,

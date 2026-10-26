@@ -25,13 +25,16 @@ const CFG = {
   POWER_OUT_MIN: 8,          // s mínimo de oscuridad antes del ataque final
   POWER_OUT_MAX: 14,
 
-  /* ---- Habilidad susto (jumpscare inofensivo) ---- */
-  ABILITY_FIRST_MIN: 15,     // s hasta primera recarga
-  ABILITY_FIRST_MAX: 40,
-  ABILITY_RE_MIN: 28,        // s de recarga tras uso
-  ABILITY_RE_MAX: 60,
+  /* ---- Caminata (movimiento a pie, sin teletransporte) ---- */
+  WALK_SEC_BASE: 1.2,        // s base de cada tramo
+  WALK_SEC_PER_PX: 300,      // px del mapa por segundo extra
+  WALK_SEC_MIN: 2.2,         // duración mínima
+  WALK_SEC_MAX: 3.8,         // duración máxima
+
+  /* ---- Habilidades especiales por animatrónico ---- */
+  ABILITY_FIRST_MIN: 12,     // s hasta la primera carga
+  ABILITY_FIRST_MAX: 25,
   SCARE_FLASH_MS: 1350,      // duración del susto animado
-  BLIND_MS: 2500,            // monitor bloqueado tras el susto
   JS_FRAME_MS: 85,           // ms por frame del jumpscare animado
 
   /* ---- Foxy ---- */
@@ -101,14 +104,14 @@ const CHARS = {
     js: "js_bonnie", portrait: "js_bonnie2",
     allowed: ["stage", "backstage", "dining", "westhall", "closet", "westcorner", "ldoor"],
     cooldown: 8, start: "stage", side: "L",
-    desc: "Rápido por el ala OESTE. Ataca por la puerta izquierda.",
+    desc: "Ala OESTE. HABILIDAD: SIGILO — desaparece de las cámaras 7s.",
   },
   chica: {
     name: "Chica", fullName: "Chica la Gallina", color: "#e8c547",
     js: "js_chica", portrait: "js_chica",
     allowed: ["stage", "dining", "kitchen", "restrooms", "easthall", "eastcorner", "rdoor"],
     cooldown: 9, start: "stage", side: "R",
-    desc: "Recorre el ala ESTE (y la cocina). Ataca por la puerta derecha.",
+    desc: "Ala ESTE y cocina. HABILIDAD: AVERÍA — satura TODAS las cámaras 6s.",
   },
   freddy: {
     name: "Freddy", fullName: "Freddy Fazbear", color: "#b98d4f",
@@ -116,17 +119,35 @@ const CHARS = {
     allowed: ["stage", "backstage", "dining", "kitchen", "restrooms",
               "westhall", "closet", "westcorner", "easthall", "eastcorner", "ldoor", "rdoor"],
     cooldown: 13, start: "stage", side: "LR",
-    desc: "Lento pero flexible: puede usar CUALQUIER lado. Su risa delata sus movimientos.",
+    desc: "Lento pero flexible (cualquier lado). HABILIDAD: RISA — bloquea puertas y luces del guardia 4s.",
   },
   foxy: {
     name: "Foxy", fullName: "Foxy el Pirata", color: "#d9583b",
     js: "js_foxy", portrait: "js_foxy",
     allowed: ["cove"], phaseOnly: true,
     cooldown: CFG.FOXY_PHASE_CD, start: "cove", side: "L",
-    desc: "Avanza por FASES en la Cala Pirata y luego EMPIEZA una carrera directa al pasillo izquierdo.",
+    desc: "Fases en la Cala Pirata. HABILIDAD: ¡CARRERA! — corre a toda velocidad hasta la puerta izquierda.",
   },
 };
 const CHAR_ORDER = ["freddy", "bonnie", "chica", "foxy"];
+
+/* ============================================================
+   HABILIDADES ESPECIALES (una por animatrónico, con recarga)
+   ============================================================ */
+const ABILITIES = {
+  freddy: { id: "laugh",   name: "RISA SINIESTRA",    cd: 45, dur: 4,
+            sub: "bloquea PUERTAS y LUCES del guardia",
+            toast: "¡RISA SINIESTRA! El guardia no puede usar sus puertas ni luces." },
+  bonnie: { id: "stealth", name: "MODO SIGILO",       cd: 40, dur: 7,
+            sub: "invisible en las cámaras del guardia",
+            toast: "¡MODO SIGILO! No apareces en ninguna cámara." },
+  chica:  { id: "jam",     name: "AVERÍA DE CÁMARAS", cd: 40, dur: 6,
+            sub: "estática total en el monitor del guardia",
+            toast: "¡AVERÍA! Todas las cámaras del guardia llenas de estática." },
+  foxy:   { id: "run",     name: "¡CARRERA!",         cd: 0,  dur: CFG.FOXY_RUN_SEC,
+            sub: "corre a toda velocidad por el pasillo izquierdo",
+            toast: "¡CARRERA INICIADA!" },
+};
 
 /* ============================================================
    IMÁGENES DE CÁMARA — composición auténtica
@@ -203,4 +224,12 @@ function exitZone(from, to) {
 function exitsFor(charId, from) {
   const list = ADJ[from] || [];
   return list.filter(to => canGoTo(charId, to));
+}
+
+/* Duración del tramo a pie entre dos salas (según distancia real del mapa) */
+function walkDur(from, to) {
+  const A = locCenter(from), B = locCenter(to);
+  const d = Math.hypot(B.cx - A.cx, B.cy - A.cy);
+  return Math.min(CFG.WALK_SEC_MAX,
+           Math.max(CFG.WALK_SEC_MIN, CFG.WALK_SEC_BASE + d / CFG.WALK_SEC_PER_PX));
 }

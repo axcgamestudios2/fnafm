@@ -9,19 +9,21 @@ const Guard = {
   input: { doors: { L: false, R: false }, lights: { L: false, R: false }, monitor: null },
   fan: null, staticL: null, kitchenL: null, jingle: null,
   lastAnims: {},
-  blind: false,
+  jamUntil: 0,         // RISA de Freddy: controles de puerta/luz atascados
+  jamT: null,
   camVar: {},
 
   /* entrada al modo guardia */
   enter() {
     UI.show("s-guard");
     this.powerOutLocal = false;
-    this.blind = false;
     // reset del input (mutando el objeto: Game.guardInput guarda la referencia)
     this.input.doors.L = false; this.input.doors.R = false;
     this.input.lights.L = false; this.input.lights.R = false;
     this.input.monitor = null;
     this.lastCam = null;
+    this.jamUntil = 0;
+    clearTimeout(this.jamT);
     document.getElementById("powerout-fx").classList.remove("active");
     this.buildOffice();
     this.buildMonitor();
@@ -127,14 +129,29 @@ const Guard = {
   },
 
   /* ---------- Input: puertas ---------- */
+  /* RISA de Freddy: botones atascados un tiempo */
+  jamActive() { return Date.now() < (this.jamUntil || 0); },
+  applyJam(ms) {
+    if (!ms || ms <= 0) return;
+    this.jamUntil = Date.now() + ms;
+    document.querySelectorAll(".fbtn-door, .fbtn-light").forEach(b => b.classList.add("jammed"));
+    clearTimeout(this.jamT);
+    this.jamT = setTimeout(() => {
+      this.jamUntil = 0;
+      document.querySelectorAll(".fbtn-door, .fbtn-light").forEach(b => b.classList.remove("jammed"));
+    }, ms);
+  },
+
   toggleDoor(side) {
     if (App.gameOverMsg || this.powerOutLocal) return;
+    if (this.jamActive()) { FX.toast("¡ATASCADO! La risa bloquea los controles…", 1300, "bad"); return; }
     this.input.doors[side] = !this.input.doors[side];
     AudioMan.play("door", 0.9);
     this.renderDoors();
   },
   lightOn(side) {
     if (App.gameOverMsg || this.powerOutLocal) return;
+    if (this.jamActive()) return;
     if (!this.input.lights[side]) {
       this.input.lights[side] = true;
       AudioMan.play("camSw", 0.5);
@@ -161,7 +178,9 @@ const Guard = {
       let present = [];
       if (snap) {
         for (const ch in snap.anims) {
-          if (snap.anims[ch].n === p) present.push(ch);
+          const an = snap.anims[ch];
+          if (an.w) continue;              // caminando: en tránsito
+          if (an.n === p) present.push(ch);
         }
       }
       let src;
@@ -195,7 +214,7 @@ const Guard = {
 
   /* ---------- Monitor ---------- */
   toggleMonitor(force) {
-    if (this.powerOutLocal || this.blind) return;
+    if (this.powerOutLocal) return;
     const want = force !== undefined ? force : !this.input.monitor;
     if (want === !!this.input.monitor) return;
     this.input.monitor = want ? (this.input.monitor || this.lastCam || "stage") : null;
@@ -213,8 +232,7 @@ const Guard = {
   },
 
   selectCam(loc) {
-    if (!this.input.monitor && !this.blind) return;
-    if (this.blind) return;
+    if (!this.input.monitor) return;
     this.lastCam = loc;
     this.input.monitor = loc;
     AudioMan.play("camSw", 0.6);
@@ -256,10 +274,33 @@ const Guard = {
     const feed = document.getElementById("cam-feed");
     const note = document.getElementById("cam-note");
     if (!loc) return;
-    // presentes
+    const s = App.snap;
+
+    // AVERÍA de Chica: estática total en todas las cámaras
+    if (s && s.guard.camJamMs > 0) {
+      if (this.kitchenL) { this.kitchenL.stop(); this.kitchenL = null; }
+      feed.innerHTML =
+        '<div class="cam-jam">' +
+        '<img src="' + IMG("monitor_static1") + '" alt="">' +
+        '<img src="' + IMG("monitor_static2") + '" alt="">' +
+        '<div class="cj-lbl">SEÑAL PERDIDA</div>' +
+        '<div class="cj-sub">AVERÍA EN EL SISTEMA DE CÁMARAS</div>' +
+        "</div>";
+      note.textContent = "AVERÍA: no se ve nada hasta que se restablezca la señal…";
+      return;
+    }
+
+    // presentes (excluye a quien camina y a quien usa SIGILO)
     const present = [];
-    if (App.snap) {
-      for (const ch in App.snap.anims) if (App.snap.anims[ch].n === loc) present.push(ch);
+    const hiddenHere = [];
+    if (s) {
+      for (const ch in s.anims) {
+        const an = s.anims[ch];
+        if (an.w) continue;              // en tránsito
+        if (an.n !== loc) continue;
+        if (an.st) { hiddenHere.push(ch); continue; } // SIGILO de Bonnie
+        present.push(ch);
+      }
     }
     // cocina: solo audio
     if (LOCS[loc].audioOnly) {
@@ -286,9 +327,13 @@ const Guard = {
       html += "</div>";
     }
     feed.innerHTML = html;
+    // SIGILO de Bonnie: interferencia sutil en la sala donde está oculto
+    feed.classList.toggle("glitch", hiddenHere.length > 0);
     note.textContent = present.length
       ? "¡Presencia detectada! (" + present.map(c => CHARS[c].name).join(", ") + ")"
-      : "Sin actividad visible.";
+      : hiddenHere.length
+        ? "Interferencia extraña en la señal…"
+        : "Sin actividad visible.";
   },
 
   comboIsAuthentic(loc, present) {
@@ -314,8 +359,8 @@ const Guard = {
     if (s.guard.mon) usage++;
     this.setUsage(usage);
 
-    // ceguera por susto
-    if (s.guard.blindMs > 0 && !this.blind) this.goBlind(s.guard.blindMs);
+    // RISA de Freddy: controles atascados (si el evento se perdió)
+    if (s.guard.jamDoorsMs > 0 && !this.jamActive()) this.applyJam(s.guard.jamDoorsMs);
 
     // apagón
     if (s.po && !this.powerOutLocal) this.enterPowerOut();
@@ -342,16 +387,24 @@ const Guard = {
   /* ---------- Eventos ---------- */
   onEvent(m) {
     switch (m.e) {
-      case "scare": {
-        // susto inofensivo: el flash + toast; la ceguera llega por snapshot
-        FX.harmlessScare(m.by, () => {});
-        FX.toast("¡" + CHARS[m.by].name + " te ha asustado! Monitor no disponible…", 3000, "bad");
+      case "laugh":
+        // RISA de Freddy: controles de puertas y luces atascados
+        this.applyJam((m.dur || 4) * 1000);
+        AudioMan.play("laugh", 1.0);
+        FX.toast("¡La RISA de " + CHARS[m.by].name + " aturde los controles de PUERTAS y LUCES!", 3000, "bad");
         break;
-      }
+      case "stealth":
+        FX.toast(CHARS[m.by].name + " se ha esfumado de las cámaras…", 2400, "warn");
+        break;
+      case "jam":
+        AudioMan.play("kitchen", 0.8);
+        FX.staticBurst(800);
+        FX.toast("¡AVERÍA! " + CHARS[m.by].name + " ha saturado las cámaras (" + m.dur + "s)…", 3000, "bad");
+        break;
       case "foxyrun": AudioMan.play("foxyRun", 1.0); FX.toast("¡Se oye una carrera en el pasillo izquierdo!", 2600, "warn"); break;
       case "bang": AudioMan.play("foxyBang", 1.1); FX.toast("¡Foxy golpea la puerta! (−2% energía)", 3000, "warn"); break;
       case "powerout": this.enterPowerOut(); break;
-      case "moved": if (m.by === "freddy") AudioMan.play("laugh", 0.9); break;
+      case "walk": if (m.by === "freddy") AudioMan.play("laugh", 0.85); break; // su risa delata su avance
       case "blocked": FX.toast("¡Captura bloqueada! Buen reflejo.", 2600, "good"); break;
       case "atdoor": FX.toast("¡Algo se acerca a una puerta!", 2600, "warn"); break;
     }
@@ -368,15 +421,7 @@ const Guard = {
   },
 
   goBlind(ms) {
-    this.blind = true;
-    this.forceMonitorDown();
-    const strip = document.getElementById("cam-strip");
-    strip.classList.add("disabled");
-    FX.staticBurst(Math.max(600, ms));
-    setTimeout(() => {
-      this.blind = false;
-      strip.classList.remove("disabled");
-    }, Math.min(ms, CFG.BLIND_MS));
+    // (obsoleto: la ceguera del monitor fue sustituida por la AVERÍA de Chica)
   },
 
   /* ---------- Apagón ---------- */

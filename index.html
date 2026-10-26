@@ -11,20 +11,23 @@
 
 <!-- ==================== PANTALLAS ==================== -->
 
-<!-- MENÚ (estilo pantalla de título original) -->
+<!-- MENÚ (estilo pantalla de título original: título arriba-izquierda,
+     opciones centradas a la izquierda, Freddy centro-derecha y TV vieja) -->
 <section class="screen active" id="s-menu">
   <div class="menu-bg"></div>
   <img class="menu-face" src="resources/img/menu_face.png" alt="">
   <img class="menu-itsme" src="resources/img/itsme.png" alt="">
-  <div class="menu-box">
+  <div class="menu-head">
     <img class="menu-title" src="resources/img/title.png" alt="Five Nights at Freddy's">
     <div class="game-sub">MULTIJUGADOR</div>
+  </div>
+  <div class="menu-box">
+    <button class="mi" id="btn-create">Nueva partida<span class="mi-sub">crea la sala — serás el GUARDIA</span></button>
+    <button class="mi" id="btn-join">Unirse a partida<span class="mi-sub">con el código de sala de un amigo</span></button>
     <div class="menu-field">
       <label for="inp-name">TU NOMBRE</label>
       <input id="inp-name" maxlength="12" placeholder="Jugador" autocomplete="off">
     </div>
-    <button class="mi" id="btn-create">Nueva partida<span class="mi-sub">crea la sala — serás el GUARDIA</span></button>
-    <button class="mi" id="btn-join">Unirse a partida<span class="mi-sub">con el código de sala de un amigo</span></button>
     <div class="menu-field">
       <label for="inp-code">CÓDIGO DE SALA</label>
       <input id="inp-code" maxlength="5" placeholder="ABC12" autocomplete="off" class="code-inp"
@@ -33,10 +36,12 @@
     <div class="menu-note">
       El anfitrión crea la sala y comparte el <b>código</b> (2-5 jugadores).<br>
       El anfitrión es el <b>Guardia</b>; el resto controla a <b>Freddy, Bonnie, Chica o Foxy</b>,
-      avanzando <b>puerta a puerta</b> (sin mapa) hasta la oficina. ¡En la puerta no se puede acampar!
+      avanzando <b>puerta a puerta, caminando</b> hasta la oficina. Cada animatrónico tiene una
+      <b>habilidad especial</b> con recarga. ¡En la puerta no se puede acampar!
     </div>
   </div>
-  <div class="menu-ver">MULTIJUGADOR P2P · v1.0</div>
+  <div class="menu-ver">MULTIJUGADOR P2P · v1.1</div>
+  <div class="tv-fx"><div class="tv-roll"></div></div>
   <div class="menu-static">
     <img src="resources/img/static1.png" alt="">
     <img src="resources/img/static2.png" alt="">

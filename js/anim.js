@@ -16,6 +16,8 @@ const Anim = {
   busy: false,
   hudTimer: null,
   kitchenL: null,
+  walkFx: null,         // caminata en curso {to, timer}
+  walkAudio: null,      // pasos en bucle
   snap: null,          // último snapshot (para el ticker local)
   snapAt: 0,           // Date.now() de llegada del snapshot
 
@@ -26,6 +28,7 @@ const Anim = {
     this.doorsKey = "";
     this.busy = false;
     this.snap = null;
+    this.clearWalkFx();
     this.stopKitchen();
     UI.show("s-anim");
 
@@ -49,9 +52,11 @@ const Anim = {
     main.innerHTML =
       '<div class="anim-scene">' +
       '  <div class="scene-layer" id="scene-layer"></div>' +
+      '  <div class="walk-fx" id="walk-fx" hidden></div>' +
       '  <div class="scene-vhs"></div>' +
       '  <div class="scene-loc" id="scene-loc">—</div>' +
       '  <div class="scene-present" id="scene-present"></div>' +
+      '  <div class="scene-ab" id="scene-ab" hidden></div>' +
       '  <div class="door-timer" id="door-timer" hidden>' +
       '    <div class="dt-lbl">NO PUEDES QUEDARTE — RETIRADA FORZOSA EN</div>' +
       '    <div class="dt-num" id="dt-num">—</div>' +
@@ -74,6 +79,7 @@ const Anim = {
 
   exit() {
     this.stopHudTicker();
+    this.clearWalkFx();
     this.stopKitchen();
   },
 
@@ -101,7 +107,7 @@ const Anim = {
         '  <div class="foxy-phases" id="foxy-phases"></div>' +
         '  <div class="act-row">' +
         '    <button class="abtn scare" id="btn-phase">AVANZAR FASE<span class="ab-sub" id="ph-sub">—</span></button>' +
-        '    <button class="abbtn run" id="btn-run" disabled><span>¡CARRERA!</span><span class="cap-sub" id="run-sub">requiere FASE 3</span></button>' +
+        '    <button class="abbtn run" id="btn-run" disabled><span>HABILIDAD: ¡CARRERA!</span><span class="cap-sub" id="run-sub">corre muy rápido — requiere FASE 3</span></button>' +
         "  </div>" +
         "</div>" +
         '<button class="abbtn capture" id="btn-capture" disabled><span>¡CAPTURA!</span><span class="cap-sub" id="cap-sub">—</span></button>';
@@ -109,8 +115,10 @@ const Anim = {
       document.getElementById("btn-run").onclick = () => this.foxyRun();
       document.getElementById("btn-capture").onclick = () => this.capture();
     } else {
+      const ab = ABILITIES[this.myChar];
       box.innerHTML =
-        '<button class="abtn scare" id="btn-ability">HABILIDAD: SUSTO<span class="ab-sub" id="ab-sub">—</span></button>' +
+        '<button class="abtn scare" id="btn-ability">HABILIDAD: ' + ab.name +
+        '<span class="ab-sub" id="ab-sub">' + ab.sub + "</span></button>" +
         '<button class="abbtn capture" id="btn-capture" disabled><span>¡CAPTURA!</span><span class="cap-sub" id="cap-sub">acércate a una puerta</span></button>';
       document.getElementById("btn-ability").onclick = () => this.useAbility();
       document.getElementById("btn-capture").onclick = () => this.capture();
@@ -146,12 +154,16 @@ const Anim = {
     this.updateDoorsCd(me);
   },
 
-  /* Estado de las placas según cooldown (llamado también por el ticker) */
+  /* Estado de las placas según cooldown/caminata (también por el ticker) */
   updateDoorsCd(me) {
+    const walking = !!(me && me.w);
     const cd = this.localCd(me);
     document.querySelectorAll("#anim-main .door-plaque").forEach(b => {
       const sub = b.querySelector(".dp-sub");
-      if (cd > 0) {
+      if (walking) {
+        b.disabled = true;
+        sub.textContent = "caminando…";
+      } else if (cd > 0) {
         b.disabled = true;
         sub.textContent = "espera " + Math.ceil(cd) + "s";
       } else {
@@ -170,10 +182,10 @@ const Anim = {
     const c = CHARS[this.myChar];
     if (c.phaseOnly) return;
     if (this.busy) return;
+    if (me.w) { FX.toast("Ya estás caminando…", 1200); return; }
     if (me.cd > 0) { FX.toast("Espera " + Math.ceil(me.cd) + "s para moverte.", 1400); return; }
     if (!ADJ[me.n] || !ADJ[me.n].includes(to)) { FX.toast("No puedes ir tan lejos de una sola vez.", 1400); return; }
     if (!canGoTo(this.myChar, to)) { FX.toast("Tu personaje no va por ahí.", 1400); return; }
-    if (this.busy) return;
     Net.toHost({ t: "move", to: to });
     this.busy = true;
     setTimeout(() => { this.busy = false; }, 350);
@@ -196,6 +208,7 @@ const Anim = {
   useAbility() {
     const me = App.snap && App.snap.anims[this.myChar];
     if (!me) return;
+    if (me.abA > 0) { FX.toast("La habilidad ya está ACTIVA.", 1400); return; }
     if (me.abR !== 0) { FX.toast("Habilidad recargando (" + Math.ceil(me.abR) + "s)…", 1400); return; }
     Net.toHost({ t: "ability" });
   },
@@ -203,6 +216,7 @@ const Anim = {
   capture() {
     const me = App.snap && App.snap.anims[this.myChar];
     if (!me) return;
+    if (me.w) { FX.toast("Termina de caminar primero…", 1400); return; }
     if (me.n !== "ldoor" && me.n !== "rdoor") { FX.toast("Debes estar EN la puerta.", 1400); return; }
     Net.toHost({ t: "capture" });
   },
@@ -215,8 +229,12 @@ const Anim = {
     this.snap = s;
     this.snapAt = Date.now();
 
-    // ¿cambié de ubicación? -> reconstruir puertas
-    if (me.n !== this.lastLoc) {
+    // caminata: asegurar la animación (por si el evento se perdió)
+    if (me.w) this.ensureWalkFx(me);
+    else if (this.walkFx) this.clearWalkFx();
+
+    // ¿cambié de ubicación (llegada efectiva)? -> reconstruir puertas
+    if (!me.w && me.n !== this.lastLoc) {
       this.lastLoc = me.n;
       this.buildDoors(me);
       this.povKey = ""; // fuerza refresco de la vista
@@ -226,6 +244,7 @@ const Anim = {
     this.renderPOV(me, s);
     this.renderDoorBadge(me, s);
     this.renderActions(me, s);
+    this.renderAbilityBadge(me);
     this.tickHud();
 
     document.getElementById("st-clock").textContent = fmtClock(s.t);
@@ -239,11 +258,102 @@ const Anim = {
     const elapsed = (Date.now() - this.snapAt) / 1000;
     return Math.max(0, me.cd - elapsed);
   },
+  /* recarga de habilidad interpolada */
+  localAbR(me) {
+    if (!me || !me.abR) return 0;
+    const elapsed = (Date.now() - this.snapAt) / 1000;
+    return Math.max(0, me.abR - elapsed);
+  },
+  /* habilidad activa interpolada */
+  localAbA(me) {
+    if (!me || !me.abA) return 0;
+    const elapsed = (Date.now() - this.snapAt) / 1000;
+    return Math.max(0, me.abA - elapsed);
+  },
   /* cuenta atrás de puerta interpolada */
   localDoorT(me) {
     if (!me || me.dT === null || me.dT === undefined) return null;
     const elapsed = (Date.now() - this.snapAt) / 1000;
     return Math.max(0, me.dT - elapsed);
+  },
+
+  /* ============================================================
+     CAMINATA EN PRIMERA PERSONA — con imágenes reales del juego:
+     la sala actual se aleza hacia la puerta de salida y la
+     siguiente entra desde esa dirección, con pasos y balanceo.
+     ============================================================ */
+  povImageFor(loc) {
+    if (loc === "kitchen") return IMG("black");
+    if (loc === "ldoor" || loc === "rdoor")
+      return IMG((loc === "ldoor" ? "l" : "r") + "door_anim_2");
+    const vars = CAM_VARIANTS[loc];
+    return IMG(vars ? vars[App.gameVariants && App.gameVariants[loc] !== undefined ? App.gameVariants[loc] : 0] : LOCS[loc].base);
+  },
+
+  /* Arranca la animación de caminata (desde evento o snapshot) */
+  startWalkFx(from, to, durSec) {
+    if (!LOCS[to] || !LOCS[from]) return;
+    this.clearWalkFx();
+    const layer = document.getElementById("walk-fx");
+    const sceneLoc = document.getElementById("scene-loc");
+    if (!layer) return;
+    const zone = exitZone(from, to);
+    const ms = Math.max(700, durSec * 1000);
+    layer.hidden = false;
+    layer.innerHTML =
+      '<img class="walk-img walk-from" src="' + this.povImageFor(from) + '" alt="">' +
+      '<img class="walk-img walk-to" src="' + this.povImageFor(to) + '" alt="">' +
+      '<div class="walk-label">CAMINANDO A ' + (LOCS[to].dest || LOCS[to].name.toUpperCase()) + "…</div>";
+    const a = layer.querySelector(".walk-from");
+    const b = layer.querySelector(".walk-to");
+    // desplazamiento según el lado de pantalla donde está la puerta
+    const off = { left: [-42, 0], right: [42, 0], top: [0, -34], bottom: [0, 34] }[zone] || [34, 0];
+    // la sala actual queda atrás: zoom hacia la puerta
+    if (a && a.animate) a.animate([
+      { transform: "scale(1) translate(0px, 0px)", filter: "brightness(0.92)", opacity: 1 },
+      { transform: "scale(1.3) translate(" + off[0] * 0.55 + "px, " + off[1] * 0.55 + "px)", filter: "brightness(0.6)", opacity: 0.25 },
+    ], { duration: ms, fill: "forwards", easing: "linear" });
+    // la sala siguiente entra desde la puerta
+    if (b && b.animate) b.animate([
+      { transform: "translate(" + off[0] + "px, " + off[1] + "px) scale(1.18)", opacity: 0 },
+      { transform: "translate(0px, 0px) scale(1)", opacity: 1 },
+    ], { duration: Math.round(ms * 0.8), delay: Math.round(ms * 0.2), fill: "forwards", easing: "ease-out" });
+    // pasos y balanceo de caminata
+    this.walkAudio = AudioMan.loop("steps", 0.8);
+    const scene = layer.closest(".anim-scene");
+    if (scene) scene.classList.add("walking");
+    if (sceneLoc) sceneLoc.textContent = "➜ " + (LOCS[to].dest || LOCS[to].name.toUpperCase());
+    this.walkFx = { to: to, from: from };
+    clearTimeout(this._walkT);
+    this._walkT = setTimeout(() => { this.stopWalkFx(); }, ms + 200);
+  },
+
+  /* El snapshot confirma una caminata en curso */
+  ensureWalkFx(me) {
+    const w = me.w;
+    if (!w) return;
+    if (this.walkFx && this.walkFx.to === w.to) return; // ya en pantalla
+    if (!this.walkFx && this._lastWalkTo === w.to) return; // ya reproducida localmente
+    this.startWalkFx(w.from, w.to, w.dur * (1 - w.p));
+  },
+
+  /* Fin de la caminata: para pasos/balanceo pero MANTIENE la imagen
+     de destino hasta que el snapshot de llegada pinte la sala. */
+  stopWalkFx() {
+    if (this.walkAudio) { this.walkAudio.stop(); this.walkAudio = null; }
+    clearTimeout(this._walkT);
+    if (this.walkFx) this._lastWalkTo = this.walkFx.to;
+    this.walkFx = null;
+    const scene = document.querySelector("#anim-main .anim-scene");
+    if (scene) scene.classList.remove("walking");
+  },
+
+  /* Limpieza total (llegada confirmada o salida del modo) */
+  clearWalkFx() {
+    this.stopWalkFx();
+    this._lastWalkTo = null;
+    const layer = document.getElementById("walk-fx");
+    if (layer) { layer.hidden = true; layer.innerHTML = ""; }
   },
 
   /* Ticker: refresca números suaves (cd, temporizador) */
@@ -285,8 +395,9 @@ const Anim = {
 
   /* ---------- POV: lo que ves desde donde estás ---------- */
   renderPOV(me, s) {
+    if (me.w) return; // caminando: la capa walk-fx posee la vista
     const present = [];
-    for (const ch in s.anims) if (s.anims[ch].n === me.n) present.push(ch);
+    for (const ch in s.anims) if (!s.anims[ch].w && s.anims[ch].n === me.n) present.push(ch);
     const doorSide = me.n === "ldoor" ? "L" : me.n === "rdoor" ? "R" : null;
     const doorClosed = doorSide === "L" ? s.guard.dL : doorSide === "R" ? s.guard.dR : null;
     const key = me.n + "|" + present.join(",") + "|" + doorClosed + "|" + (me.phase || "") + "|" + !!me.running;
@@ -389,13 +500,23 @@ const Anim = {
     } else {
       const abBtn = document.getElementById("btn-ability");
       const abSub = document.getElementById("ab-sub");
-      if (me.abR === 0) { abBtn.classList.add("ready"); abSub.textContent = "¡LISTA!"; }
-      else { abBtn.classList.remove("ready"); abSub.textContent = "recarga " + Math.ceil(me.abR) + "s"; }
+      const abA = this.localAbA(me);
+      const abR = this.localAbR(me);
+      if (abA > 0) {
+        abBtn.classList.remove("ready");
+        abBtn.classList.add("active-ab");
+        abBtn.disabled = true;
+        abSub.textContent = "¡ACTIVA! " + Math.ceil(abA) + "s";
+      } else {
+        abBtn.classList.remove("active-ab");
+        if (abR <= 0) { abBtn.classList.add("ready"); abBtn.disabled = false; abSub.textContent = "¡LISTA! — púlsala"; }
+        else { abBtn.classList.remove("ready"); abBtn.disabled = true; abSub.textContent = "recarga " + Math.ceil(abR) + "s"; }
+      }
     }
     // captura
     const cap = document.getElementById("btn-capture");
     const capSub = document.getElementById("cap-sub");
-    const atDoor = me.n === "ldoor" || me.n === "rdoor";
+    const atDoor = (me.n === "ldoor" || me.n === "rdoor") && !me.w;
     if (atDoor && !me.running) {
       const side = me.n === "ldoor" ? "L" : "R";
       const closed = side === "L" ? s.guard.dL : s.guard.dR;
@@ -415,16 +536,46 @@ const Anim = {
     }
   },
 
+  /* ---------- Insignia de habilidad activa (sobre la escena) ---------- */
+  renderAbilityBadge(me) {
+    const badge = document.getElementById("scene-ab");
+    if (!badge) return;
+    const c = CHARS[this.myChar];
+    const abA = this.localAbA(me);
+    if (abA > 0 && !c.phaseOnly) {
+      const ab = ABILITIES[this.myChar];
+      badge.hidden = false;
+      badge.className = "scene-ab" + (me.st ? " stealth" : "");
+      badge.style.borderColor = c.color;
+      badge.innerHTML = (me.st ? "⛔ OCULTO EN CÁMARAS · " : "") +
+        ab.name + " — " + Math.ceil(abA) + "s";
+    } else {
+      badge.hidden = true;
+    }
+  },
+
   /* ---------- Eventos ---------- */
   onEvent(m) {
     const mine = m.by === this.myChar;
     switch (m.e) {
-      case "scare":
-        if (mine) FX.toast("¡Susto enviado al guardia! Su monitor queda cegado.", 2400, "good");
-        else FX.toast(CHARS[m.by].name + " ha usado su susto.", 2200);
+      case "walk":
+        // la animación de caminata arranca aquí (y el snapshot la confirma)
+        if (mine) this.startWalkFx(m.from, m.to, m.dur);
         break;
-      case "moved":
-        if (mine) AudioMan.play("steps", 0.8);
+      case "arrive":
+        if (mine && m.door) AudioMan.play("door", 0.5);
+        break;
+      case "laugh":
+        if (mine) FX.toast("¡RISA SINIESTRA! El guardia no puede usar sus puertas ni luces.", 3000, "good");
+        else FX.toast("La risa de " + CHARS[m.by].name + " retumba en la pizzería…", 2400);
+        break;
+      case "stealth":
+        if (mine) FX.toast("¡MODO SIGILO! No apareces en las cámaras durante " + m.dur + "s.", 3000, "good");
+        else FX.toast(CHARS[m.by].name + " se ha esfumado de las cámaras…", 2400);
+        break;
+      case "jam":
+        if (mine) FX.toast("¡AVERÍA! Las cámaras del guardia llenas de estática " + m.dur + "s.", 3000, "good");
+        else FX.toast("Se oye un estruendo de cacharros…", 2400);
         break;
       case "phase":
         if (mine) FX.toast("Fase " + m.ph + " alcanzada.", 1800, "good");
@@ -440,7 +591,7 @@ const Anim = {
         else FX.toast("Captura bloqueada por el guardia.", 2400);
         break;
       case "retreat":
-        if (mine) { FX.toast("¡TIEMPO AGOTADO! Repliegue forzoso…", 3000, "bad"); AudioMan.play("steps", 0.9); }
+        if (mine) { FX.toast("¡TIEMPO AGOTADO! Repliegue forzoso…", 3000, "bad"); }
         else FX.toast(CHARS[m.by].name + " tuvo que retirarse de la puerta.", 2400);
         break;
       case "powerout":
