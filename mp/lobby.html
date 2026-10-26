@@ -220,7 +220,23 @@
     </div>
     <div class="glitch"></div>
     <img src="../1/resources/vignette.png" class="vignette">
-    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <!-- PeerJS con CDNs de respaldo: si unpkg falla, prueba jsdelivr -->
+    <script>
+        (function () {
+            var CDNS = [
+                'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
+                'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js'
+            ];
+            function load(i) {
+                if (i >= CDNS.length) return; // lobby.js mostrará el error al usuario
+                var s = document.createElement('script');
+                s.src = CDNS[i];
+                s.onerror = function () { load(i + 1); };
+                document.head.appendChild(s);
+            }
+            load(0);
+        })();
+    </script>
     <script src="net.js"></script>
     <script src="lobby.js"></script>
 </body>
