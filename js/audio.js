@@ -5,25 +5,25 @@
 "use strict";
 
 const SND = {
-  fan: "snd/fan_loop.mp3",        // ambiente ventilador oficina
-  drone: "snd/drone_loop.mp3",    // ambiente nocturno
-  menu: "snd/menu_music.mp3",     // música de menú
-  camUp: "snd/cam_up.mp3",        // abrir monitor
-  camDown: "snd/cam_down.mp3",    // cerrar monitor
-  camSw: "snd/cam_switch.mp3",    // estática al cambiar cámara
-  click: "snd/ui_click.mp3",      // botón
-  door: "snd/door.mp3",           // puerta seguridad
-  scream: "snd/scream.mp3",       // jumpscare
-  laugh: "snd/freddy_laugh.mp3",  // risa Freddy (se mueve)
-  jingle: "snd/freddy_jingle.mp3",// marcha toreador (sin energía)
-  foxyRun: "snd/foxy_run.mp3",    // carrera Foxy
-  foxyBang: "snd/foxy_bang.mp3",  // golpes en puerta
-  steps: "snd/footsteps.mp3",     // pasos (movimiento propio)
-  kitchen: "snd/kitchen.mp3",     // cacharros cocina
-  staticL: "snd/static_loop.mp3", // estática cámara
-  powerDown: "snd/power_down.mp3",// se agota la energía
-  sixam: "snd/sixam.mp3",         // campanadas 6AM
-  yay: "snd/yay.mp3",             // niños "¡yay!"
+  fan: "resources/snd/fan_loop.mp3",        // ambiente ventilador oficina
+  drone: "resources/snd/drone_loop.mp3",    // ambiente nocturno
+  menu: "resources/snd/menu_music.mp3",     // música de menú
+  camUp: "resources/snd/cam_up.mp3",        // abrir monitor
+  camDown: "resources/snd/cam_down.mp3",    // cerrar monitor
+  camSw: "resources/snd/cam_switch.mp3",    // estática al cambiar cámara
+  click: "resources/snd/ui_click.mp3",      // botón
+  door: "resources/snd/door.mp3",           // puerta seguridad
+  scream: "resources/snd/scream.mp3",       // jumpscare
+  laugh: "resources/snd/freddy_laugh.mp3",  // risa Freddy (se mueve)
+  jingle: "resources/snd/freddy_jingle.mp3",// marcha toreador (sin energía)
+  foxyRun: "resources/snd/foxy_run.mp3",    // carrera Foxy
+  foxyBang: "resources/snd/foxy_bang.mp3",  // golpes en puerta
+  steps: "resources/snd/footsteps.mp3",     // pasos (movimiento propio)
+  kitchen: "resources/snd/kitchen.mp3",     // cacharros cocina
+  staticL: "resources/snd/static_loop.mp3", // estática cámara
+  powerDown: "resources/snd/power_down.mp3",// se agota la energía
+  sixam: "resources/snd/sixam.mp3",         // campanadas 6AM
+  yay: "resources/snd/yay.mp3",             // niños "¡yay!"
 };
 
 const AudioMan = {

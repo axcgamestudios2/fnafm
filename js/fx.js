@@ -20,6 +20,8 @@ const FX = {
     let i = 0;
     ov.classList.add("active", "shake");
     if (lethal) ov.classList.add("glitching");
+    // el grito de Freddy transcurre a oscuras en el original: se realza
+    img.style.filter = charId === "freddy" ? "brightness(2.5) contrast(1.5)" : "";
     AudioMan.play("scream", lethal ? 1.15 : 1.0, lethal ? 0.92 : 1);
     if (navigator.vibrate) try { navigator.vibrate(lethal ? [400, 80, 400] : 300); } catch (e) {}
     clearInterval(this.scareAnim);
@@ -32,6 +34,7 @@ const FX = {
     this.scareTimeout = setTimeout(() => {
       clearInterval(this.scareAnim);
       ov.classList.remove("active", "shake", "glitching");
+      img.style.filter = "";
       if (done) done();
     }, ms);
   },

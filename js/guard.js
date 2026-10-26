@@ -11,6 +11,7 @@ const Guard = {
   lastAnims: {},
   jamUntil: 0,         // RISA de Freddy: controles de puerta/luz atascados
   jamT: null,
+  blindUntilLocal: 0,  // SUSTO inofensivo: monitor cegado
   camVar: {},
 
   /* entrada al modo guardia */
@@ -23,6 +24,7 @@ const Guard = {
     this.input.monitor = null;
     this.lastCam = null;
     this.jamUntil = 0;
+    this.blindUntilLocal = 0;
     clearTimeout(this.jamT);
     document.getElementById("powerout-fx").classList.remove("active");
     this.buildOffice();
@@ -216,6 +218,10 @@ const Guard = {
   toggleMonitor(force) {
     if (this.powerOutLocal) return;
     const want = force !== undefined ? force : !this.input.monitor;
+    if (want && this.blindUntilLocal > Date.now()) {
+      FX.toast("MONITOR NO DISPONIBLE — ¡te han asustado!", 1600, "bad");
+      return;
+    }
     if (want === !!this.input.monitor) return;
     this.input.monitor = want ? (this.input.monitor || this.lastCam || "stage") : null;
     if (want) {
@@ -362,6 +368,9 @@ const Guard = {
     // RISA de Freddy: controles atascados (si el evento se perdió)
     if (s.guard.jamDoorsMs > 0 && !this.jamActive()) this.applyJam(s.guard.jamDoorsMs);
 
+    // SUSTO inofensivo: ceguera del monitor (si el evento se perdió)
+    if (s.guard.blindMs > 0 && this.blindUntilLocal < Date.now()) this.goBlind(s.guard.blindMs);
+
     // apagón
     if (s.po && !this.powerOutLocal) this.enterPowerOut();
 
@@ -393,6 +402,13 @@ const Guard = {
         AudioMan.play("laugh", 1.0);
         FX.toast("¡La RISA de " + CHARS[m.by].name + " aturde los controles de PUERTAS y LUCES!", 3000, "bad");
         break;
+      case "scare": {
+        // SUSTO INOFENSIVO (habilidad EXTRA): jumpscare animado + monitor cegado
+        FX.harmlessScare(m.by, () => {});
+        this.goBlind(CFG.SCARE_BLIND_MS);
+        FX.toast("¡" + CHARS[m.by].name + " TE HA ASUSTADO! Monitor no disponible…", 3000, "bad");
+        break;
+      }
       case "stealth":
         FX.toast(CHARS[m.by].name + " se ha esfumado de las cámaras…", 2400, "warn");
         break;
@@ -421,7 +437,9 @@ const Guard = {
   },
 
   goBlind(ms) {
-    // (obsoleto: la ceguera del monitor fue sustituida por la AVERÍA de Chica)
+    // SUSTO INOFENSIVO: el monitor queda cegado un instante
+    this.blindUntilLocal = Date.now() + (ms || CFG.SCARE_BLIND_MS);
+    this.forceMonitorDown();
   },
 
   /* ---------- Apagón ---------- */

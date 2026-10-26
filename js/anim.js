@@ -110,17 +110,21 @@ const Anim = {
         '    <button class="abbtn run" id="btn-run" disabled><span>HABILIDAD: ¡CARRERA!</span><span class="cap-sub" id="run-sub">corre muy rápido — requiere FASE 3</span></button>' +
         "  </div>" +
         "</div>" +
+        '<button class="abtn extra" id="btn-scare">SUSTO INOFENSIVO<span class="ab-sub" id="sc-sub">—</span></button>' +
         '<button class="abbtn capture" id="btn-capture" disabled><span>¡CAPTURA!</span><span class="cap-sub" id="cap-sub">—</span></button>';
       document.getElementById("btn-phase").onclick = () => this.foxyPhase();
       document.getElementById("btn-run").onclick = () => this.foxyRun();
+      document.getElementById("btn-scare").onclick = () => this.useScare();
       document.getElementById("btn-capture").onclick = () => this.capture();
     } else {
       const ab = ABILITIES[this.myChar];
       box.innerHTML =
         '<button class="abtn scare" id="btn-ability">HABILIDAD: ' + ab.name +
         '<span class="ab-sub" id="ab-sub">' + ab.sub + "</span></button>" +
+        '<button class="abtn extra" id="btn-scare">SUSTO INOFENSIVO<span class="ab-sub" id="sc-sub">asusta al guardia — jumpscare sin captura</span></button>' +
         '<button class="abbtn capture" id="btn-capture" disabled><span>¡CAPTURA!</span><span class="cap-sub" id="cap-sub">acércate a una puerta</span></button>';
       document.getElementById("btn-ability").onclick = () => this.useAbility();
+      document.getElementById("btn-scare").onclick = () => this.useScare();
       document.getElementById("btn-capture").onclick = () => this.capture();
     }
   },
@@ -213,6 +217,15 @@ const Anim = {
     Net.toHost({ t: "ability" });
   },
 
+  /* SUSTO INOFENSIVO — habilidad EXTRA común a todos los animatrónicos */
+  useScare() {
+    const me = App.snap && App.snap.anims[this.myChar];
+    if (!me) return;
+    const scR = this.localScR(me);
+    if (scR > 0) { FX.toast("El susto recarga (" + Math.ceil(scR) + "s)…", 1400); return; }
+    Net.toHost({ t: "scare" });
+  },
+
   capture() {
     const me = App.snap && App.snap.anims[this.myChar];
     if (!me) return;
@@ -231,7 +244,11 @@ const Anim = {
 
     // caminata: asegurar la animación (por si el evento se perdió)
     if (me.w) this.ensureWalkFx(me);
-    else if (this.walkFx) this.clearWalkFx();
+    else if (this.walkFx || this._lastWalkKey) {
+      // llegada: ráfaga de estática auténtica al asentarse la vista
+      this.staticBurstLocal(240);
+      this.clearWalkFx();
+    }
 
     // ¿cambié de ubicación (llegada efectiva)? -> reconstruir puertas
     if (!me.w && me.n !== this.lastLoc) {
@@ -264,6 +281,12 @@ const Anim = {
     const elapsed = (Date.now() - this.snapAt) / 1000;
     return Math.max(0, me.abR - elapsed);
   },
+  /* recarga del SUSTO inofensivo interpolada */
+  localScR(me) {
+    if (!me || !me.scR) return 0;
+    const elapsed = (Date.now() - this.snapAt) / 1000;
+    return Math.max(0, me.scR - elapsed);
+  },
   /* habilidad activa interpolada */
   localAbA(me) {
     if (!me || !me.abA) return 0;
@@ -278,9 +301,10 @@ const Anim = {
   },
 
   /* ============================================================
-     CAMINATA EN PRIMERA PERSONA — con imágenes reales del juego:
-     la sala actual se aleza hacia la puerta de salida y la
-     siguiente entra desde esa dirección, con pasos y balanceo.
+     CAMINATA EN PRIMERA PERSONA — transición auténtica del FNAF:
+     ráfaga de estática al partir (como el cambio de cámara del
+     original) y la vista de destino AVANZANDO hacia ella (zoom
+     frontal suave) con balanceo de cabeza y pasos.
      ============================================================ */
   povImageFor(loc) {
     if (loc === "kitchen") return IMG("black");
@@ -290,6 +314,27 @@ const Anim = {
     return IMG(vars ? vars[App.gameVariants && App.gameVariants[loc] !== undefined ? App.gameVariants[loc] : 0] : LOCS[loc].base);
   },
 
+  /* Ráfaga de estática auténtica (los 3 fotogramas del original
+     ciclando a ~13 fps) — igual que el cambio de cámara del juego */
+  staticBurstLocal(ms) {
+    const scene = document.querySelector("#anim-main .anim-scene");
+    if (!scene || scene.querySelector(".walk-static")) return;
+    const d = document.createElement("div");
+    d.className = "walk-static";
+    d.innerHTML =
+      '<img src="' + IMG("static1") + '" alt="">' +
+      '<img src="' + IMG("static2") + '" alt="" style="display:none">' +
+      '<img src="' + IMG("static3") + '" alt="" style="display:none">';
+    scene.appendChild(d);
+    const frames = d.querySelectorAll("img");
+    let fi = 0;
+    const int = setInterval(() => {
+      frames.forEach((im, idx) => { im.style.display = idx === (fi % 3) ? "block" : "none"; });
+      fi++;
+    }, 78);
+    setTimeout(() => { clearInterval(int); d.remove(); }, Math.max(160, ms));
+  },
+
   /* Arranca la animación de caminata (desde evento o snapshot) */
   startWalkFx(from, to, durSec) {
     if (!LOCS[to] || !LOCS[from]) return;
@@ -297,43 +342,38 @@ const Anim = {
     const layer = document.getElementById("walk-fx");
     const sceneLoc = document.getElementById("scene-loc");
     if (!layer) return;
-    const zone = exitZone(from, to);
     const ms = Math.max(700, durSec * 1000);
+    const isDoor = to === "ldoor" || to === "rdoor";
     layer.hidden = false;
     layer.innerHTML =
-      '<img class="walk-img walk-from" src="' + this.povImageFor(from) + '" alt="">' +
-      '<img class="walk-img walk-to" src="' + this.povImageFor(to) + '" alt="">' +
-      '<div class="walk-label">CAMINANDO A ' + (LOCS[to].dest || LOCS[to].name.toUpperCase()) + "…</div>";
-    const a = layer.querySelector(".walk-from");
-    const b = layer.querySelector(".walk-to");
-    // desplazamiento según el lado de pantalla donde está la puerta
-    const off = { left: [-42, 0], right: [42, 0], top: [0, -34], bottom: [0, 34] }[zone] || [34, 0];
-    // la sala actual queda atrás: zoom hacia la puerta
-    if (a && a.animate) a.animate([
-      { transform: "scale(1) translate(0px, 0px)", filter: "brightness(0.92)", opacity: 1 },
-      { transform: "scale(1.3) translate(" + off[0] * 0.55 + "px, " + off[1] * 0.55 + "px)", filter: "brightness(0.6)", opacity: 0.25 },
-    ], { duration: ms, fill: "forwards", easing: "linear" });
-    // la sala siguiente entra desde la puerta
-    if (b && b.animate) b.animate([
-      { transform: "translate(" + off[0] + "px, " + off[1] + "px) scale(1.18)", opacity: 0 },
-      { transform: "translate(0px, 0px) scale(1)", opacity: 1 },
-    ], { duration: Math.round(ms * 0.8), delay: Math.round(ms * 0.2), fill: "forwards", easing: "ease-out" });
-    // pasos y balanceo de caminata
+      '<img class="walk-img' + (isDoor ? " door-fit" : "") + '" src="' + this.povImageFor(to) + '" alt="">' +
+      '<div class="walk-label">CAMINANDO: ' + LOCS[to].short.toUpperCase() + "…</div>";
+    // estática de transición al partir (auténtica del FNAF 1)
+    this.staticBurstLocal(400);
+    AudioMan.play("camSw", 0.7);
+    // la vista de destino avanza hacia ti: zoom frontal progresivo
+    const img = layer.querySelector(".walk-img");
+    if (img && img.animate) img.animate([
+      { transform: "scale(1.0)", filter: "brightness(0.78) contrast(1.12)" },
+      { transform: "scale(1.3)", filter: "brightness(0.95) contrast(1.06)" },
+    ], { duration: ms, fill: "both", easing: "ease-in" });
+    // pasos en bucle y balanceo de cabeza
     this.walkAudio = AudioMan.loop("steps", 0.8);
     const scene = layer.closest(".anim-scene");
     if (scene) scene.classList.add("walking");
     if (sceneLoc) sceneLoc.textContent = "➜ " + (LOCS[to].dest || LOCS[to].name.toUpperCase());
     this.walkFx = { to: to, from: from };
     clearTimeout(this._walkT);
-    this._walkT = setTimeout(() => { this.stopWalkFx(); }, ms + 200);
+    this._walkT = setTimeout(() => { this.stopWalkFx(); }, ms + 150);
   },
 
   /* El snapshot confirma una caminata en curso */
   ensureWalkFx(me) {
     const w = me.w;
     if (!w) return;
-    if (this.walkFx && this.walkFx.to === w.to) return; // ya en pantalla
-    if (!this.walkFx && this._lastWalkTo === w.to) return; // ya reproducida localmente
+    const key = w.from + ">" + w.to;
+    if (this.walkFx && this.walkFx.to === w.to && this.walkFx.from === w.from) return; // ya en pantalla
+    if (!this.walkFx && this._lastWalkKey === key) return; // ya reproducida localmente
     this.startWalkFx(w.from, w.to, w.dur * (1 - w.p));
   },
 
@@ -342,7 +382,7 @@ const Anim = {
   stopWalkFx() {
     if (this.walkAudio) { this.walkAudio.stop(); this.walkAudio = null; }
     clearTimeout(this._walkT);
-    if (this.walkFx) this._lastWalkTo = this.walkFx.to;
+    if (this.walkFx) this._lastWalkKey = this.walkFx.from + ">" + this.walkFx.to;
     this.walkFx = null;
     const scene = document.querySelector("#anim-main .anim-scene");
     if (scene) scene.classList.remove("walking");
@@ -351,7 +391,7 @@ const Anim = {
   /* Limpieza total (llegada confirmada o salida del modo) */
   clearWalkFx() {
     this.stopWalkFx();
-    this._lastWalkTo = null;
+    this._lastWalkKey = null;
     const layer = document.getElementById("walk-fx");
     if (layer) { layer.hidden = true; layer.innerHTML = ""; }
   },
@@ -418,10 +458,11 @@ const Anim = {
       if (!this.kitchenL) this.kitchenL = AudioMan.loop("kitchen", 0.55);
     } else {
       this.stopKitchen();
-      let img, sub;
+      let img, sub, extraCls = "";
       if (loc === "ldoor" || loc === "rdoor") {
         const side = loc === "ldoor" ? "l" : "r";
         img = doorClosed ? side + "door_closed_2" : side + "door_light_2";
+        extraCls = " door-fit"; // tira vertical de la puerta: encajada a lo alto, sin deformar
         locLbl.textContent = loc === "ldoor" ? "PUERTA IZQUIERDA DE LA OFICINA" : "PUERTA DERECHA DE LA OFICINA";
         sub = doorClosed
           ? "El guardia ha BAJADO LA PUERTA. Si pulsas CAPTURA te bloqueará."
@@ -438,7 +479,7 @@ const Anim = {
         img = vars ? vars[App.gameVariants && App.gameVariants[loc] !== undefined ? App.gameVariants[loc] : 0] : LOCS[loc].base;
         locLbl.textContent = LOCS[loc].name.toUpperCase() + (LOCS[loc].cam ? " — CAM " + LOCS[loc].cam : "");
       }
-      html = '<img class="scene-img" src="' + IMG(img) + '" alt="">';
+      html = '<img class="scene-img' + extraCls + '" src="' + IMG(img) + '" alt="">';
       if (sub) html += '<div class="scene-hint">' + sub + "</div>";
     }
     layer.innerHTML = html;
@@ -513,6 +554,21 @@ const Anim = {
         else { abBtn.classList.remove("ready"); abBtn.disabled = true; abSub.textContent = "recarga " + Math.ceil(abR) + "s"; }
       }
     }
+    // susto inofensivo (EXTRA, común)
+    const scBtn = document.getElementById("btn-scare");
+    const scSub = document.getElementById("sc-sub");
+    if (scBtn && scSub) {
+      const scR = this.localScR(me);
+      if (scR > 0) {
+        scBtn.disabled = true;
+        scBtn.classList.remove("ready");
+        scSub.textContent = "recarga " + Math.ceil(scR) + "s";
+      } else {
+        scBtn.disabled = false;
+        scBtn.classList.add("ready");
+        scSub.textContent = "¡LISTO! — asusta al guardia";
+      }
+    }
     // captura
     const cap = document.getElementById("btn-capture");
     const capSub = document.getElementById("cap-sub");
@@ -576,6 +632,10 @@ const Anim = {
       case "jam":
         if (mine) FX.toast("¡AVERÍA! Las cámaras del guardia llenas de estática " + m.dur + "s.", 3000, "good");
         else FX.toast("Se oye un estruendo de cacharros…", 2400);
+        break;
+      case "scare":
+        if (mine) FX.toast("¡SUSTO ENVIADO! El monitor del guardia queda cegado un momento.", 2800, "good");
+        else FX.toast(CHARS[m.by].name + " ha lanzado un susto al guardia…", 2200);
         break;
       case "phase":
         if (mine) FX.toast("Fase " + m.ph + " alcanzada.", 1800, "good");

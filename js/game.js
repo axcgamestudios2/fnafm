@@ -81,6 +81,7 @@ const Game = {
         stealthUntil: 0,                  // Bonnie: invisible en cámaras
         effUntil: 0,                      // fin del efecto de la habilidad (para el HUD)
         ab: { ready: false, nextAt: this.rand(CFG.ABILITY_FIRST_MIN, CFG.ABILITY_FIRST_MAX) },
+        scare: { ready: false, nextAt: this.rand(CFG.SCARE_FIRST_MIN, CFG.SCARE_FIRST_MAX) }, // susto inofensivo EXTRA
         lastFrom: c.start,
       };
     }
@@ -165,6 +166,9 @@ const Game = {
       const a = s.anims[ch];
       if (!a.ab.ready && s.t >= a.ab.nextAt && !s.over) {
         a.ab.ready = true; // disponible periódicamente durante la noche
+      }
+      if (a.scare && !a.scare.ready && s.t >= a.scare.nextAt && !s.over) {
+        a.scare.ready = true; // el susto inofensivo EXTRA también recarga
       }
     }
 
@@ -307,6 +311,17 @@ const Game = {
         }
         return;
       }
+      case "scare": { // SUSTO INOFENSIVO (habilidad EXTRA): asusta al guardia
+        // sin matar: jumpscare animado + monitor cegado un momento
+        if (!a || s.over) return;
+        if (!a.scare || !a.scare.ready) return;
+        a.scare.ready = false;
+        a.scare.nextAt = s.t + CFG.SCARE_RE_SEC;
+        s.guard.blindUntil = s.t + CFG.SCARE_BLIND_MS / 1000; // ceguera del monitor
+        s.stats.scares++;
+        this.ev("scare", { by: charId });
+        return;
+      }
       case "capture": { // acción final de captura en la puerta
         if (!a || s.over) return;
         if (a.walk) return;                            // caminando no se puede capturar
@@ -385,6 +400,7 @@ const Game = {
         cd: Math.max(0, +(a.cd - s.t).toFixed(1)),
         abR: a.ab.ready ? 0 : Math.max(0, +(a.ab.nextAt - s.t).toFixed(0)),
         abA: Math.max(0, +(a.effUntil - s.t).toFixed(1)),   // habilidad activa (s restantes)
+        scR: !a.scare ? 0 : (a.scare.ready ? 0 : Math.max(0, +(a.scare.nextAt - s.t).toFixed(0))),
         st: !!(a.stealthUntil && s.t < a.stealthUntil),     // sigilo activo (Bonnie)
         w: a.walk ? {
             from: a.walk.from, to: a.walk.to, dur: +a.walk.dur.toFixed(1),
@@ -410,6 +426,7 @@ const Game = {
           mon: s.guard.mon,
           jamDoorsMs: Math.max(0, +((s.guard.jamDoorsUntil || 0) - s.t).toFixed(1)) * 1000,
           camJamMs:  Math.max(0, +((s.guard.camJamUntil  || 0) - s.t).toFixed(1)) * 1000,
+          blindMs:   Math.max(0, +((s.guard.blindUntil   || 0) - s.t).toFixed(1)) * 1000,
         },
         anims: anims,
         stats: s.stats,

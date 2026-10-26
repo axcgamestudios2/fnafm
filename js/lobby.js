@@ -78,7 +78,7 @@ const Lobby = {
     const wrap = document.getElementById("char-picker");
     wrap.innerHTML = "";
     if (Net.isHost) {
-      wrap.innerHTML = '<div class="host-note">Tú eres el <b>GUARDIA</b>.<br>ESPACIO abre las cámaras · A/D cierran puertas · Z/X encienden luces (mantener).<br>También puedes usar la franja de CÁMARAS y los botones PUERTA/LUZ de la pantalla.<br>Los demás eligen animatrónico (o se les asigna uno al empezar).</div>';
+      wrap.innerHTML = '<div class="host-note">Tú eres el <b>GUARDIA</b>.<br>ESPACIO abre las cámaras · A/D cierran puertas · Z/X encienden luces (mantener).<br>También puedes usar la franja de CÁMARAS y los botones PUERTA/LUZ de la pantalla.<br>Los demás eligen animatrónico (o se les asigna uno al empezar): cada uno tiene una habilidad única y un SUSTO inofensivo EXTRA que cegará tu monitor un instante.</div>';
       return;
     }
     for (const chId of CHAR_ORDER) {

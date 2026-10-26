@@ -34,8 +34,14 @@ const CFG = {
   /* ---- Habilidades especiales por animatrónico ---- */
   ABILITY_FIRST_MIN: 12,     // s hasta la primera carga
   ABILITY_FIRST_MAX: 25,
-  SCARE_FLASH_MS: 1350,      // duración del susto animado
   JS_FRAME_MS: 85,           // ms por frame del jumpscare animado
+
+  /* ---- Susto inofensivo (habilidad EXTRA común) ---- */
+  SCARE_FIRST_MIN: 10,       // s hasta la primera carga del susto
+  SCARE_FIRST_MAX: 22,
+  SCARE_RE_SEC: 30,          // recarga fija del susto
+  SCARE_FLASH_MS: 1350,      // duración del jumpscare animado en el guardia
+  SCARE_BLIND_MS: 2600,      // monitor del guardia cegado tras el susto
 
   /* ---- Foxy ---- */
   FOXY_PHASE_CD: 8,          // s entre fases
@@ -50,12 +56,13 @@ const CFG = {
   DOOR_STAY_WARN_SEC: 4,     // s finales en rojo parpadeante
 };
 
-/* Jumpscare ANIMADO original: secuencias de frames auténticas */
+/* Jumpscare ANIMADO original: secuencias de frames auténticas
+   (Freddy y Foxy extraídas del repo del FNAF 1 original: grito real) */
 const JS_FRAMES = {
-  freddy: Array.from({ length: 10 }, (_, i) => "jsq_freddy_" + String(i).padStart(2, "0")),
+  freddy: Array.from({ length: 16 }, (_, i) => "jsq_freddy_" + String(i).padStart(2, "0")),
   bonnie: Array.from({ length: 12 }, (_, i) => "jsq_bonnie_" + String(i).padStart(2, "0")),
   chica:  Array.from({ length: 11 }, (_, i) => "jsq_chica_" + String(i).padStart(2, "0")),
-  foxy:   ["jsq_foxy_00"],
+  foxy:   Array.from({ length: 6 },  (_, i) => "jsq_foxy_" + String(i).padStart(2, "0")),
 };
 
 /* ============================================================
@@ -104,14 +111,14 @@ const CHARS = {
     js: "js_bonnie", portrait: "js_bonnie2",
     allowed: ["stage", "backstage", "dining", "westhall", "closet", "westcorner", "ldoor"],
     cooldown: 8, start: "stage", side: "L",
-    desc: "Ala OESTE. HABILIDAD: SIGILO — desaparece de las cámaras 7s.",
+    desc: "Ala OESTE. HABILIDAD: SIGILO (invisible en cámaras 7s) + SUSTO inofensivo EXTRA.",
   },
   chica: {
     name: "Chica", fullName: "Chica la Gallina", color: "#e8c547",
     js: "js_chica", portrait: "js_chica",
     allowed: ["stage", "dining", "kitchen", "restrooms", "easthall", "eastcorner", "rdoor"],
     cooldown: 9, start: "stage", side: "R",
-    desc: "Ala ESTE y cocina. HABILIDAD: AVERÍA — satura TODAS las cámaras 6s.",
+    desc: "Ala ESTE y cocina. HABILIDAD: AVERÍA (satura las cámaras 6s) + SUSTO inofensivo EXTRA.",
   },
   freddy: {
     name: "Freddy", fullName: "Freddy Fazbear", color: "#b98d4f",
@@ -119,14 +126,14 @@ const CHARS = {
     allowed: ["stage", "backstage", "dining", "kitchen", "restrooms",
               "westhall", "closet", "westcorner", "easthall", "eastcorner", "ldoor", "rdoor"],
     cooldown: 13, start: "stage", side: "LR",
-    desc: "Lento pero flexible (cualquier lado). HABILIDAD: RISA — bloquea puertas y luces del guardia 4s.",
+    desc: "Lento pero flexible (cualquier lado). HABILIDAD: RISA (bloquea puertas/luces 4s) + SUSTO inofensivo EXTRA.",
   },
   foxy: {
     name: "Foxy", fullName: "Foxy el Pirata", color: "#d9583b",
     js: "js_foxy", portrait: "js_foxy",
     allowed: ["cove"], phaseOnly: true,
     cooldown: CFG.FOXY_PHASE_CD, start: "cove", side: "L",
-    desc: "Fases en la Cala Pirata. HABILIDAD: ¡CARRERA! — corre a toda velocidad hasta la puerta izquierda.",
+    desc: "Fases en la Cala Pirata. HABILIDAD: ¡CARRERA! veloz hasta la puerta izq. + SUSTO inofensivo EXTRA.",
   },
 };
 const CHAR_ORDER = ["freddy", "bonnie", "chica", "foxy"];

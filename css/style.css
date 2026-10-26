@@ -61,9 +61,11 @@ button { font-family: inherit; }
   filter: contrast(1.2) brightness(1.05);
 }
 #fx-jumpscare.glitching img { animation: jglitch 0.14s steps(2) infinite; }
+/* ojo: no poner filter en los keyframes — debe respetar el realce
+   inline de Freddy (frames oscuros auténticos del original) */
 @keyframes jglitch {
-  0% { transform: translate(0,0) scale(1.04); filter: contrast(1.4) brightness(1.2); }
-  50% { transform: translate(-14px, 8px) scale(1.07); filter: contrast(2) brightness(0.7) hue-rotate(20deg); }
+  0% { transform: translate(0,0) scale(1.04); }
+  50% { transform: translate(-14px, 8px) scale(1.07); }
   100% { transform: translate(12px, -6px) scale(1.02); }
 }
 #fx-jumpscare.shake { animation: shake 0.09s linear infinite; }
@@ -559,8 +561,16 @@ button { font-family: inherit; }
 .walk-fx { position: absolute; inset: 0; z-index: 4; overflow: hidden; background: #000; }
 .walk-img {
   position: absolute; inset: -3%; width: 106%; height: 106%; object-fit: cover;
-  filter: brightness(0.9) contrast(1.06); will-change: transform, opacity;
+  filter: brightness(0.9) contrast(1.06); will-change: transform;
 }
+/* tira vertical de la puerta: encajada a lo alto y centrada, sin deformar */
+.walk-img.door-fit { inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.scene-img.door-fit { object-fit: contain; background: #000; }
+/* ráfaga de estática auténtica (transición de cambio de vista del FNAF 1) */
+.walk-static {
+  position: absolute; inset: 0; z-index: 7; background: #000; pointer-events: none;
+}
+.walk-static img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .walk-label {
   position: absolute; bottom: 17%; left: 50%; transform: translateX(-50%);
   background: #000000c8; border: 1px solid #3a3a44; padding: 8px 22px;
@@ -576,6 +586,8 @@ button { font-family: inherit; }
   75% { transform: translateY(-0.55%) rotate(0.15deg); }
 }
 .anim-scene.walking .scene-vhs { opacity: 0.7; }
+/* durante la caminata no se ven las placas de salida del origen */
+.anim-scene.walking .scene-doors { display: none; }
 
 /* --- Insignia de habilidad activa sobre la escena --- */
 .scene-ab {
@@ -664,6 +676,10 @@ button { font-family: inherit; }
 }
 .abtn .ab-sub { font-size: 12px; color: var(--dim); }
 .abtn.ready { background: #231a3a; border-color: #7a5fd0; color: #fff; box-shadow: 0 0 18px #7a5fd066; animation: readyPulse 1s infinite; }
+/* botón EXTRA (susto inofensivo): tono rojizo para distinguirlo */
+.abtn.extra { border-color: #5a2c33; background: #1d1216; }
+.abtn.extra .ab-sub { color: #b98d8d; }
+.abtn.extra.ready { background: #3a161d; border-color: #c2545e; box-shadow: 0 0 18px #c2545e55; animation: none; }
 @keyframes readyPulse { 50% { box-shadow: 0 0 34px #7a5fd0aa; } }
 .abbtn {
   padding: 12px 20px; cursor: pointer;
