@@ -309,7 +309,7 @@ const Anim = {
   povImageFor(loc) {
     if (loc === "kitchen") return IMG("black");
     if (loc === "ldoor" || loc === "rdoor")
-      return IMG((loc === "ldoor" ? "l" : "r") + "door_anim_2");
+      return IMG("office");   // desde el umbral ves LA OFICINA del guardia
     const vars = CAM_VARIANTS[loc];
     return IMG(vars ? vars[App.gameVariants && App.gameVariants[loc] !== undefined ? App.gameVariants[loc] : 0] : LOCS[loc].base);
   },
@@ -346,7 +346,7 @@ const Anim = {
     const isDoor = to === "ldoor" || to === "rdoor";
     layer.hidden = false;
     layer.innerHTML =
-      '<img class="walk-img' + (isDoor ? " door-fit" : "") + '" src="' + this.povImageFor(to) + '" alt="">' +
+      '<img class="walk-img" src="' + this.povImageFor(to) + '" alt="">' +
       '<div class="walk-label">CAMINANDO: ' + LOCS[to].short.toUpperCase() + "…</div>";
     // estática de transición al partir (auténtica del FNAF 1)
     this.staticBurstLocal(400);
@@ -408,6 +408,16 @@ const Anim = {
     const me = s.anims[this.myChar];
     if (!me) return;
 
+    // POV de la CARRERA de Foxy: animación continua de frames auténticos
+    if (me.running && !me.w) {
+      const im = document.querySelector("#scene-layer .scene-img");
+      if (im) {
+        const f = FOXYRUN_FRAMES[Math.floor(Date.now() / FOXYRUN_MS) % FOXYRUN_FRAMES.length];
+        const want = IMG(f);
+        if (!im.src.endsWith(want)) im.src = want;
+      }
+    }
+
     // chip de cooldown
     const fill = document.getElementById("cd-fill");
     const txt = document.getElementById("cd-txt");
@@ -465,19 +475,18 @@ const Anim = {
       this.stopKitchen();
       let img, sub, extraCls = "";
       if (loc === "ldoor" || loc === "rdoor") {
-        const side = loc === "ldoor" ? "l" : "r";
-        img = doorClosed ? side + "door_closed_2" : side + "door_light_2";
-        extraCls = " door-fit"; // tira vertical de la puerta: encajada a lo alto, sin deformar
-        locLbl.textContent = loc === "ldoor" ? "PUERTA IZQUIERDA DE LA OFICINA" : "PUERTA DERECHA DE LA OFICINA";
+        // en el umbral: ves la oficina del guardia (¿bajarán la puerta?)
+        img = "office";
+        locLbl.textContent = loc === "ldoor" ? "UMBRAL DE LA PUERTA IZQUIERDA" : "UMBRAL DE LA PUERTA DERECHA";
         sub = doorClosed
           ? "El guardia ha BAJADO LA PUERTA. Si pulsas CAPTURA te bloqueará."
           : "¡La puerta está ABIERTA! Pulsa CAPTURA para entrar…";
       } else if (loc === "cove") {
-        const ph = me.phase || 1;
+        const ph = me.phase || 0;
         img = FOXY_PHASE_IMG[ph] || "cove_closed";
-        locLbl.textContent = "CALA PIRATA — FASE " + ph;
+        locLbl.textContent = "CALA PIRATA — FASE " + ph + " (así te ve el guardia en CAM 1C)";
       } else if (me.running) {
-        img = "cove_run" + Math.min(4, Math.max(1, Math.ceil(Math.abs(Math.sin(Date.now() / 300)) * 4)));
+        img = FOXYRUN_FRAMES[Math.floor(Date.now() / FOXYRUN_MS) % FOXYRUN_FRAMES.length];
         locLbl.textContent = "¡CORRIENDO POR EL PASILLO IZQUIERDO!";
       } else {
         const vars = CAM_VARIANTS[loc];
@@ -485,6 +494,10 @@ const Anim = {
         locLbl.textContent = LOCS[loc].name.toUpperCase() + (LOCS[loc].cam ? " — CAM " + LOCS[loc].cam : "");
       }
       html = '<img class="scene-img' + extraCls + '" src="' + IMG(img) + '" alt="">';
+      if (loc === "ldoor" || loc === "rdoor") {
+        // la puerta metálica bajada ocupa tu lado de la oficina
+        html += '<div class="pov-door ' + (loc === "ldoor" ? "" : "pov-door-r") + (doorClosed ? " down" : "") + '"></div>';
+      }
       if (sub) html += '<div class="scene-hint">' + sub + "</div>";
     }
     layer.innerHTML = html;
@@ -519,10 +532,11 @@ const Anim = {
   renderActions(me, s) {
     const c = CHARS[this.myChar];
     if (c.phaseOnly) {
-      const ph = me.phase || 1;
+      const ph = me.phase || 0;
       document.getElementById("foxy-phases").innerHTML =
-        [1, 2, 3].map(i =>
-          '<div class="fphase' + (i <= ph ? " done" : "") + (i === ph ? " cur" : "") + '">F' + i + "</div>"
+        [0, 1, 2, 3].map(i =>
+          '<div class="fphase' + (i <= ph ? " done" : "") + (i === ph ? " cur" : "") + '">' +
+          (i === 0 ? "CORTINA" : i === 1 ? "ASOMA" : i === 2 ? "MEDIO FUERA" : "¡VACÍA!") + "</div>"
         ).join("") + '<div class="fphase-arrow">→ 🏁 puerta izq.</div>';
       const phBtn = document.getElementById("btn-phase");
       const phSub = document.getElementById("ph-sub");
@@ -538,8 +552,9 @@ const Anim = {
         phBtn.disabled = true; phSub.textContent = "fase máxima";
         runBtn.disabled = false; runSub.textContent = "¡corre por el pasillo izquierdo!";
       } else {
+        const next = ph === 0 ? "ASOMAR" : ph === 1 ? "SALIR A MEDIO" : "¡DEJARLA VACÍA!";
         phBtn.disabled = me.cd > 0;
-        phSub.textContent = me.cd > 0 ? Math.ceil(me.cd) + "s" : "avanza a F" + (ph + 1);
+        phSub.textContent = me.cd > 0 ? Math.ceil(me.cd) + "s" : next;
         runBtn.disabled = true; runSub.textContent = "requiere FASE 3";
         if (s.guard.mon === "cove") phSub.textContent = "¡te están mirando!";
       }
@@ -624,7 +639,7 @@ const Anim = {
         if (mine) this.startWalkFx(m.from, m.to, m.dur);
         break;
       case "arrive":
-        if (mine && m.door) AudioMan.play("door", 0.5);
+        if (mine && m.door) AudioMan.play("camSw", 0.35); // blip de estática al llegar al umbral
         break;
       case "laugh":
         if (mine) FX.toast("¡RISA SINIESTRA! El guardia no puede usar sus puertas ni luces.", 3000, "good");

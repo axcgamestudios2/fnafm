@@ -74,7 +74,7 @@ const Game = {
       this.st.anims[p.char] = {
         pid: +pid, node: c.start,
         cd: 2 + this.rand(0, 3),          // pequeño cd inicial aleatorio
-        phase: c.phaseOnly ? 1 : null,
+        phase: c.phaseOnly ? 0 : null,    // Foxy: tras la cortina CERRADA
         running: false, runStart: 0, runNode: null,
         walk: null,                       // caminata en curso {from,to,start,dur}
         doorAt: null,                     // instante (s.t) de llegada a una puerta de oficina
@@ -267,7 +267,7 @@ const Game = {
         this.ev("walk", { by: charId, from: a.walk.from, to: to, dur: a.walk.dur });
         return;
       }
-      case "phase": { // Foxy avanza de fase
+      case "phase": { // Foxy avanza de fase (cortina cerrada -> asoma -> medio fuera -> ¡vacía!)
         if (!a || s.over || !CHARS[charId].phaseOnly) return;
         if (a.phase >= 3 || a.running) return;
         if (a.cd > s.t) return;

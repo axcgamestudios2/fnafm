@@ -325,80 +325,169 @@ button { font-family: inherit; }
 }
 .cc-state.mine { background: #14351b; color: #7fe08f; }
 
-/* ---------- GUARDIA: oficina (1ª versión) ---------- */
+/* ---------- GUARDIA: OFICINA ORIGINAL (vista panorámica fija) ---------- */
 #s-guard { background: #000; }
 #office-view {
-  position: absolute; inset: 0; display: flex; overflow: hidden;
+  position: absolute; inset: 0; overflow: hidden;
   background: #020204;
 }
-.office-side {
-  position: relative; flex: 0 0 24%; display: flex; flex-direction: column;
-  border-right: 2px solid #191922; z-index: 2;
+.office-pan {
+  position: absolute; inset: -3%;
+  transform: scale(1.06);
+  transition: transform 0.35s ease-out;
+  will-change: transform;
 }
-.office-right { border-right: none; border-left: 2px solid #191922; order: 3; }
-.office-center {
-  position: relative; flex: 1 1 52%; order: 2; overflow: hidden;
-  background: #05050a;
+.office-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover;
+  filter: brightness(0.92) contrast(1.06);
 }
-.office-center > img {
-  position: absolute; left: -28%; width: 156%; height: 100%; object-fit: cover;
-  filter: brightness(0.88) contrast(1.05);
+/* Zonas de puerta (laterales del plano) */
+.door-zone {
+  position: absolute; top: 0; bottom: 0; width: 26%;
+  pointer-events: none; z-index: 3;
 }
-.office-glow {
-  position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse at 50% 65%, transparent 40%, rgba(0,0,0,0.75) 100%);
+.dz-left  { left: 0; }
+.dz-right { right: 0; }
+/* Umbral iluminado: vista auténtica a PANTALLA COMPLETA mientras
+   se mantiene la luz (revela al animatrónico en el umbral) */
+.door-reveal {
+  position: absolute; inset: 0; z-index: 2;
+  background-size: cover; background-position: center;
+  opacity: 0; transition: opacity 0.07s;
+  filter: brightness(1.1) contrast(1.08);
+  animation: lightFlick 0.19s steps(2) infinite;
 }
-.door-frame { position: relative; flex: 1 1 auto; overflow: hidden; background: #03030a; }
-.door-frame img { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.9); }
-.who-there { position: absolute; inset: 0; pointer-events: none; display: none; z-index: 3; }
-.who-there.active { display: flex; align-items: center; justify-content: center; gap: 8%; }
-.who-face { text-align: center; }
-.who-face img {
-  width: min(34vw, 240px); height: min(34vw, 240px); object-fit: cover;
-  border-radius: 6px; box-shadow: 0 0 34px #000; filter: contrast(1.25) brightness(1.1);
-  animation: whoPulse 0.32s steps(2) infinite;
+.door-reveal.active { opacity: 1; }
+@keyframes lightFlick { 50% { filter: brightness(1.28) contrast(1.12); } }
+/* Resplandor de la luz del umbral */
+.door-lightglow {
+  position: absolute; inset: 0; opacity: 0; transition: opacity 0.12s;
+  background: radial-gradient(ellipse at var(--gx, 50%) 55%,
+              rgba(255,238,190,0.16) 0%, rgba(255,238,190,0.05) 45%, transparent 70%);
+  mix-blend-mode: screen;
 }
-.who-face span {
-  display: block; color: #ffb0a0; font-size: 20px; letter-spacing: 3px; margin-top: 8px;
-  text-shadow: 0 0 12px #ff2a1a;
+.dz-left  .door-lightglow { --gx: 42%; }
+.dz-right .door-lightglow { --gx: 58%; }
+.door-lightglow.active { opacity: 1; }
+/* PUERTA METÁLICA que baja deslizándose (como el original) */
+.metal-door {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+  transform: translateY(-102%);
+  background:
+    linear-gradient(90deg, #22222a 0%, #3a3a44 12%, #2c2c34 30%, #43434e 50%, #2c2c34 70%, #3a3a44 88%, #22222a 100%);
+  box-shadow: inset 0 -14px 26px #000000c8, 0 8px 22px #000000a0;
 }
-@keyframes whoPulse { 50% { filter: contrast(1.6) brightness(1.35); } }
-.btn-col {
-  display: flex; gap: 8px; padding: 10px; background: #0a0a12; border-top: 2px solid #191922;
+.metal-door.closed { transform: translateY(0); }
+.md-ridges {
+  position: absolute; inset: 10% 6%;
+  background: repeating-linear-gradient(90deg,
+    transparent 0 22px, rgba(0,0,0,0.32) 22px 25px);
 }
-.fbtn {
-  flex: 1; padding: 16px 6px; font-size: 15px; letter-spacing: 2px; cursor: pointer;
-  background: #101018; color: #cfcfd8; border: 2px solid #2c2c36;
-  transition: background 0.12s, border-color 0.12s;
+.md-hazard {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 12%;
+  background: repeating-linear-gradient(45deg,
+    #b7a527 0 18px, #17171d 18px 36px);
+  border-top: 3px solid #17171d;
 }
-.fbtn:active { transform: scale(0.97); }
-.fbtn-door.on { background: #7a1f16; border-color: #c0392b; color: #ffe9e4; box-shadow: 0 0 14px #c0392b88; }
-.fbtn-light.on { background: #6d6517; border-color: #d8c34a; color: #fffbe4; box-shadow: 0 0 14px #d8c34a77; }
+/* Botones de pared DOOR/LIGHT (como el original: cajas junto a la puerta) */
+.wall-btns {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 10px; z-index: 4;
+}
+.wb-left  { left: 22%; }
+.wb-right { right: 22%; }
+.wbtn {
+  position: relative; width: 92px; padding: 15px 0 12px;
+  font-family: inherit; font-size: 14px; letter-spacing: 3px; cursor: pointer;
+  background: #17171d; color: #b9b9c4;
+  border: 2px solid #3c3c46; border-radius: 3px;
+  box-shadow: 0 3px 10px #00000090, inset 0 1px 0 #ffffff14;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.wbtn:active { transform: scale(0.96); }
+.wbtn .wb-led {
+  position: absolute; top: 5px; right: 6px; width: 8px; height: 8px;
+  border-radius: 50%; background: #26262e; border: 1px solid #0a0a0e;
+}
+.wbtn.on { background: #26262e; color: #fff; }
+.wbtn#btn-door-L.on, .wbtn#btn-door-R.on {
+  background: #5e1a12; border-color: #b03024; color: #ffd9d2;
+}
+.wbtn#btn-door-L.on .wb-led, .wbtn#btn-door-R.on .wb-led {
+  background: #ff3b28; box-shadow: 0 0 8px #ff3b28;
+}
+.wbtn#btn-light-L.on, .wbtn#btn-light-R.on {
+  background: #5c5410; border-color: #b0a028; color: #fff8cf;
+}
+.wbtn#btn-light-L.on .wb-led, .wbtn#btn-light-R.on .wb-led {
+  background: #ffe23a; box-shadow: 0 0 8px #ffe23a;
+}
 /* RISA de Freddy: controles atascados */
-.fbtn.jammed {
+.wbtn.jammed {
   background: #3a1010; border-color: #7a2016; color: #ff9d8f;
   cursor: not-allowed; animation: jamFlick 0.3s steps(2) infinite;
 }
 @keyframes jamFlick { 50% { filter: brightness(0.55); } }
+/* Aviso de presencia en el umbral */
+.who-there {
+  position: absolute; left: 27%; top: 16%; z-index: 5;
+  pointer-events: none; display: none;
+}
+.who-there.wt-right { left: auto; right: 27%; }
+.who-there.active { display: flex; gap: 14px; }
+.who-face { text-align: center; }
+.who-face img {
+  width: min(20vw, 150px); height: min(20vw, 150px); object-fit: cover;
+  border-radius: 6px; box-shadow: 0 0 34px #000; filter: contrast(1.25) brightness(1.1);
+  animation: whoPulse 0.32s steps(2) infinite;
+}
+.who-face span {
+  display: block; color: #ffb0a0; font-size: 17px; letter-spacing: 3px; margin-top: 6px;
+  text-shadow: 0 0 12px #ff2a1a;
+}
+@keyframes whoPulse { 50% { filter: contrast(1.6) brightness(1.35); } }
 .office-hud-tl { position: absolute; top: 12px; right: 14px; text-align: right; z-index: 4; }
 .clock-big { font-size: clamp(20px, 3.4vw, 34px); color: #f1ead9; letter-spacing: 3px; text-shadow: 0 0 10px #b98d4f44; }
 .night-lbl { color: var(--dim); font-size: 12px; letter-spacing: 4px; }
 .office-hud-bl { position: absolute; left: 14px; bottom: 12px; z-index: 4; background: #000000b0; padding: 10px 14px; border: 1px solid var(--line); }
-.power-lbl { color: var(--dim); font-size: 11px; letter-spacing: 3px; }
+.power-lbl { color: #cfcfd8; font-size: 13px; letter-spacing: 2px; }
 .power-val { font-size: 26px; color: #f1ead9; }
 .power-bar { width: 170px; height: 12px; background: #1a1a22; margin: 6px 0 4px; border: 1px solid #2c2c36; }
 .power-fill { height: 100%; width: 100%; background: #57c25f; transition: width 0.3s; }
 .power-fill.low { background: #d84a3a; }
 .usage-lbl { font-size: 12px; color: var(--dim); }
-.usage-lbl span { color: var(--ink); letter-spacing: 2px; }
+.usage-lbl span { color: #6fe07a; letter-spacing: 2px; text-shadow: 0 0 8px #4db85b66; }
 #cam-strip {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
-  z-index: 6; padding: 8px 34px; cursor: pointer;
+  z-index: 6; padding: 9px 46px; cursor: pointer;
   background: #0e0e16f2; border: 2px solid #2c2c36; border-bottom: none;
-  color: #cfd8e2; letter-spacing: 6px; font-size: 13px;
+  color: #cfd8e2; letter-spacing: 6px; font-size: 13px; user-select: none;
 }
 #cam-strip:hover { background: #15151f; color: #fff; }
 #cam-strip.disabled { opacity: 0.35; pointer-events: none; filter: grayscale(1); }
+/* POV del animatrónico: puerta metálica bajada en su lado de la oficina */
+.pov-door {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 30%;
+  transform: translateY(-102%); transition: transform 0.25s;
+  background:
+    linear-gradient(90deg, #22222a 0%, #3a3a44 12%, #2c2c34 30%, #43434e 50%, #2c2c34 70%, #3a3a44 88%, #22222a 100%);
+  box-shadow: inset 0 -14px 26px #000000c8;
+}
+.pov-door.down { transform: translateY(0); }
+.pov-door.pov-door-r { left: auto; right: 0; }
+/* Indicador de CAMINATA en el monitor del guardia */
+.cam-walkflag {
+  position: absolute; top: 12px; right: 16px; z-index: 5;
+  display: flex; align-items: center; gap: 8px;
+  background: #000000c0; border: 1px solid #6a5a20; color: #ffe08a;
+  font-size: 12px; letter-spacing: 3px; padding: 7px 12px;
+}
+.cw-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: #ffe23a;
+  box-shadow: 0 0 10px #ffe23a; animation: cwBlink 0.5s steps(2) infinite;
+}
+@keyframes cwBlink { 50% { opacity: 0.25; } }
 #cam-help {
   position: absolute; top: 8px; left: 12px; z-index: 6; font-size: 11px; color: #6a6a76;
   background: #00000090; padding: 6px 10px; border: 1px solid #22222c;

@@ -1,6 +1,7 @@
 /* ============================================================
    FNAF 1 MULTIJUGADOR — CONFIGURACIÓN DEL MUNDO
-   Basado en los assets auténticos del FNAF 1 (port HTML5)
+   Assets 100% auténticos del FNAF 1 original (port HTML5),
+   verificados por hash perceptual + estructura + color.
    ============================================================ */
 "use strict";
 
@@ -46,7 +47,7 @@ const CFG = {
   /* ---- Foxy ---- */
   FOXY_PHASE_CD: 8,          // s entre fases
   FOXY_RUN_SEC: 3.6,         // duración de la carrera
-  FOXY_PATH: ["westhall", "westcorner"], // ruta de la carrera (cuba->...->puerta izq)
+  FOXY_PATH: ["westhall", "westcorner"], // ruta de la carrera (cala->...->puerta izq)
 
   /* ---- Victoria por captura ---- */
   CAPTURE_WINDOW_MS: 1500,   // margen de gracia anti-doble-click
@@ -56,32 +57,35 @@ const CFG = {
   DOOR_STAY_WARN_SEC: 4,     // s finales en rojo parpadeante
 };
 
-/* Jumpscare ANIMADO original: secuencias de frames auténticas
-   (Freddy y Foxy extraídas del repo del FNAF 1 original: grito real) */
+/* Jumpscare ANIMADO original: secuencias de frames auténticas */
 const JS_FRAMES = {
   freddy: Array.from({ length: 16 }, (_, i) => "jsq_freddy_" + String(i).padStart(2, "0")),
   bonnie: Array.from({ length: 12 }, (_, i) => "jsq_bonnie_" + String(i).padStart(2, "0")),
   chica:  Array.from({ length: 11 }, (_, i) => "jsq_chica_" + String(i).padStart(2, "0")),
-  foxy:   Array.from({ length: 6 },  (_, i) => "jsq_foxy_" + String(i).padStart(2, "0")),
+  foxy:   Array.from({ length: 7 },  (_, i) => "jsq_foxy_" + String(i).padStart(2, "0")),
 };
 
 /* ============================================================
    LOCACIONES (nodos de movimiento) — mapa del FNAF 1
+   Pasillos corregidos: OESTE = 0043 (con Bonnie 0222),
+   ESTE = 0554/0241. Esquinas corregidas: OESTE = 0280/0282,
+   ESTE = 0041/0494. (Verificado: Foxy rojo en la familia 0043,
+   Bonnie púrpura en 0222, secuencia de Bonnie en la 0280.)
    ============================================================ */
 const LOCS = {
   stage:      { cam: "1A", name: "Show Stage",      short: "Escenario",  base: "stage_empty",   x: 400, y: 30,  w: 225, h: 85,  dest: "AL ESCENARIO" },
-  backstage:  { cam: "5",  name: "Backstage",        short: "Backstage",  base: "backstage",     x: 240, y: 40,  w: 130, h: 90,  dest: "AL BACKSTAGE" },
-  dining:     { cam: "1B", name: "Dining Area",      short: "Comedor",    base: "dining",        x: 330, y: 140, w: 340, h: 120, dest: "AL COMEDOR" },
-  cove:       { cam: "1C", name: "Pirate Cove",      short: "Cala Pirata",base: "cove_closed",   x: 175, y: 150, w: 130, h: 105, foxyOnly: true, dest: "A LA CALA PIRATA" },
-  kitchen:    { cam: "6",  name: "Kitchen",          short: "Cocina",     base: null, audioOnly: true, x: 700, y: 140, w: 110, h: 90, dest: "A LA COCINA" },
-  restrooms:  { cam: "7",  name: "Restrooms",        short: "Baños",      base: "restrooms",     x: 825, y: 140, w: 140, h: 90,  dest: "A LOS BAÑOS" },
-  closet:     { cam: "3",  name: "Supply Closet",    short: "Almacén",    base: "closet",        x: 205, y: 270, w: 115, h: 105, dest: "AL ALMACÉN" },
-  westhall:   { cam: "2A", name: "West Hall",        short: "Pasillo O",  base: "westhall",      x: 340, y: 275, w: 105, h: 150, dest: "AL PASILLO OESTE" },
-  westcorner: { cam: "2B", name: "W. Hall Corner",   short: "Esq. Oeste", base: "westcorner",    x: 340, y: 440, w: 105, h: 80,  dest: "A LA ESQUINA OESTE" },
-  easthall:   { cam: "4A", name: "East Hall",        short: "Pasillo E",  base: "easthall",      x: 700, y: 275, w: 105, h: 150, dest: "AL PASILLO ESTE" },
-  eastcorner: { cam: "4B", name: "E. Hall Corner",   short: "Esq. Este",  base: "eastcorner",    x: 700, y: 440, w: 105, h: 80,  dest: "A LA ESQUINA ESTE" },
-  ldoor:      { cam: null, name: "Puerta Izquierda", short: "P. IZQ",     base: null, terminal: "L", x: 470, y: 465, w: 70, h: 55, dest: "A LA PUERTA IZQUIERDA" },
-  rdoor:      { cam: null, name: "Puerta Derecha",   short: "P. DCHA",    base: null, terminal: "R", x: 600, y: 465, w: 70, h: 55, dest: "A LA PUERTA DERECHA" },
+  backstage:  { cam: "5",  name: "Backstage",       short: "Backstage",  base: "backstage",     x: 240, y: 40,  w: 130, h: 90,  dest: "AL BACKSTAGE" },
+  dining:     { cam: "1B", name: "Dining Area",     short: "Comedor",    base: "dining",        x: 330, y: 140, w: 340, h: 120, dest: "AL COMEDOR" },
+  cove:       { cam: "1C", name: "Pirate Cove",     short: "Cala Pirata",base: "cove_closed",  x: 175, y: 150, w: 130, h: 105, foxyOnly: true, dest: "A LA CALA PIRATA" },
+  kitchen:    { cam: "6",  name: "Kitchen",         short: "Cocina",     base: null, audioOnly: true, x: 700, y: 140, w: 110, h: 90, dest: "A LA COCINA" },
+  restrooms:  { cam: "7",  name: "Restrooms",       short: "Baños",      base: "restrooms",     x: 825, y: 140, w: 140, h: 90,  dest: "A LOS BAÑOS" },
+  closet:     { cam: "3",  name: "Supply Closet",   short: "Almacén",    base: "closet",        x: 205, y: 270, w: 115, h: 105, dest: "AL ALMACÉN" },
+  westhall:   { cam: "2A", name: "West Hall",       short: "Pasillo O",  base: "westhall",      x: 340, y: 275, w: 105, h: 150, dest: "AL PASILLO OESTE" },
+  westcorner: { cam: "2B", name: "W. Hall Corner",  short: "Esq. Oeste", base: "westcorner",    x: 340, y: 440, w: 105, h: 80,  dest: "A LA ESQUINA OESTE" },
+  easthall:   { cam: "4A", name: "East Hall",       short: "Pasillo E",  base: "easthall",      x: 700, y: 275, w: 105, h: 150, dest: "AL PASILLO ESTE" },
+  eastcorner: { cam: "4B", name: "E. Hall Corner",  short: "Esq. Este",  base: "eastcorner",    x: 700, y: 440, w: 105, h: 80,  dest: "A LA ESQUINA ESTE" },
+  ldoor:      { cam: null, name: "Puerta Izquierda", short: "P. IZQ",    base: null, terminal: "L", x: 470, y: 465, w: 70, h: 55, dest: "A LA PUERTA IZQUIERDA" },
+  rdoor:      { cam: null, name: "Puerta Derecha",   short: "P. DCHA",   base: null, terminal: "R", x: 600, y: 465, w: 70, h: 55, dest: "A LA PUERTA DERECHA" },
 };
 const OFFICE_MAP = { x: 470, y: 530, w: 200, h: 45 }; // posición "YOU" (solo estética)
 
@@ -157,42 +161,80 @@ const ABILITIES = {
 };
 
 /* ============================================================
-   IMÁGENES DE CÁMARA — composición auténtica
-   combo[loc][charSetKey] = imagen (cuando solo está ese personaje,
-   o una combinación exacta). Si no hay combo -> base + overlay.
+   VISTAS DE CÁMARA AUTÉNTICAS CON ANIMATRÓNICOS
+   (imágenes originales verificadas: sala + personaje presente)
+   CAM_VIEWS[loc][charId] = imagen
    ============================================================ */
-const CAM_COMBO = {
-  stage:      { "bonnie,chica,freddy": "stage_full" },
-  dining:     { "freddy": "dining_freddy", "bonnie": "dining_bonnie",
-                "freddy2": "dining_freddy2", "freddy3": "dining_freddy3" },
-  westhall:   { "freddy": "westhall_freddy" },
-  westcorner: { "freddy": "westcorner_freddy" },
-  easthall:   { "freddy": "easthall_freddy", "bonnie": "easthall_bonnie" },
-  eastcorner: { "freddy": "eastcorner_freddy" },
-  backstage:  { "freddy": "backstage_freddy", "chica": "backstage_chica" },
-  restrooms:  { "chica,freddy": "restrooms_chica_freddy" },
+const CAM_VIEWS = {
+  stage: {
+    "bonnie,chica,freddy": "stage_full",     // los 3 en el escenario
+    "bonnie,freddy":       "stage_bf",       // Bonnie+Freddy (sin Chica)
+    "freddy":              "stage_full_alt", // variante auténtica
+    /* sin combinación auténtica -> base + chips */
+  },
+  dining: {
+    "bonnie": "dining_bonnie",
+    "freddy": "dining_freddy",
+  },
+  backstage: {
+    "bonnie":  "backstage_bonnie",   // la cara de Bonnie asomando
+    "freddy":  "backstage_freddy",
+    "chica":   "backstage_chica",
+  },
+  restrooms: {
+    "chica,freddy": "restrooms_chica_freddy",
+  },
+  westhall: {
+    "bonnie": "westhall_bonnie",     // Bonnie parado en el pasillo oeste
+    "freddy": "easthall_freddy",     // Freddy oscuro (vista auténtica de pasillo)
+  },
+  westcorner: {
+    "bonnie": "westcorner_bonnie3",  // el primerísimo plano ICÓNICO
+  },
+  easthall: {
+    "freddy": "easthall_freddy",     // Freddy a oscuras con ojos blancos
+    "chica":  "easthall_freddy",     // oscurecido (sin imagen propia de Chica lejos)
+  },
+  eastcorner: {
+    "chica":  "eastcorner_chica",    // cara de Chica en la esquina
+    "freddy": null,                  /* secuencia animada (freddy_stare) — se maneja aparte */
+  },
 };
 
-/* Variantes visuales (se elige aleatoriamente para dar vida) */
+/* Variantes visuales de sala VACÍA (elegidas por el host al azar) */
 const CAM_VARIANTS = {
-  westhall:   ["westhall", "westhall2", "westhall_far"],
-  eastcorner: ["eastcorner", "eastcorner2"],
-  closet:     ["closet", "closet2"],
-  restrooms:  ["restrooms", "restrooms2"],
-  backstage:  ["backstage", "backstage_lit", "backstage_dark"],
-  dining:     ["dining", "dining_orig"],
+  westhall:   ["westhall"],
+  westcorner: ["westcorner", "westcorner2"],
+  easthall:   ["easthall", "easthall2"],
+  eastcorner: ["eastcorner", "eastcorner_poster"],
+  closet:     ["closet"],
+  restrooms:  ["restrooms"],
+  backstage:  ["backstage", "backstage_lit"],
+  dining:     ["dining"],
 };
 
-/* Fases de Foxy en la cala (índice de fase -> imagen) */
+/* Fases de Foxy en la cala (índice de fase -> imagen auténtica)
+   F1: asoma la cabeza por la rendija · F2: medio fuera · F3: ¡VACÍA! (listo) */
 const FOXY_PHASE_IMG = {
-  1: "cove_peek",     // asomando
-  2: "cove_out",      // fuera de la cortina
-  3: "cove_ready",    // listo para correr
+  0: "cove_closed",   // tras la cortina (inicio de noche)
+  1: "cove_peek",
+  2: "cove_lean",
+  3: "cove_gone",
 };
+
+/* Frames auténticos de Foxy EMBISTIENDO la puerta izquierda (0396-0412) */
+const FOXYDOOR_FRAMES = Array.from({ length: 17 }, (_, i) => "foxydoor_" + String(i).padStart(2, "0"));
+
+/* Frames auténticos de Foxy CORRIENDO por el pasillo (CAM 2A/2B) */
+const FOXYRUN_FRAMES = ["foxyrun_1", "foxyrun_2", "foxyrun_3", "foxyrun_4"];
+const FOXYRUN_MS = 110;   // ~9 fps: esprint
+
+/* Secuencia animada de Freddy clavando la mirada en la Esquina Este */
+const FREDDY_STARE = Array.from({ length: 10 }, (_, i) => "freddy_stare_" + String(i).padStart(2, "0"));
+const STARE_MS = 620;
 
 /* ============================================================
    MAPA ORIGINAL DEL MONITOR (M0013 del juego auténtico, 404x404)
-   Posiciones de los botones CAM en % sobre el plano.
    ============================================================ */
 const MAP_IMG = "map_floorplan";
 const MAP_BTN_POS = {                    // {x,y} en % del plano (0-100)
@@ -210,20 +252,6 @@ const MAP_BTN_POS = {                    // {x,y} en % del plano (0-100)
 };
 
 /* ============================================================
-   SECUENCIAS ANIMADAS DE CÁMARA — planos icónicos del original:
-   Bonnie ocupando el Pasillo Oeste (primerísimo plano) y Freddy
-   clavando la mirada en la Esquina Este. Se animan en el monitor
-   del guardia mientras el personaje esté (o esté CAMINANDO) ahí.
-   ============================================================ */
-const CAM_SEQ = {
-  westhall:   { bonnie: Array.from({ length: 12 }, (_, i) => "jsq_bonnie_" + String(i).padStart(2, "0")),
-                foxy: ["cove_run1", "cove_run2", "cove_run3", "cove_run4"] },   // ¡Foxy esprintando!
-  westcorner: { foxy: ["cove_run1", "cove_run2", "cove_run3", "cove_run4"] },
-  eastcorner: { freddy: Array.from({ length: 10 }, (_, i) => "freddy_stare_" + String(i).padStart(2, "0")) },
-};
-const CAM_SEQ_MS = 620;   // ms por frame de la secuencia de cámara
-
-/* ============================================================
    HELPERS
    ============================================================ */
 function locName(id)  { return LOCS[id] ? LOCS[id].name : id; }
@@ -238,14 +266,11 @@ function canGoTo(charId, locId) {
   return c.allowed.includes(locId);
 }
 
-/* Tecla del set de personajes presentes para lookup de combos */
+/* Tecla del set de personajes presentes para lookup de vistas */
 function comboKey(chars) { return chars.slice().sort().join(","); }
 
 /* ============================================================
-   PUERTAS DE SALIDA — lado de pantalla donde se dibuja la placa.
-   Se calcula con la geografía real del mapa: la puerta que lleva
-   a una sala se dibuja en el borde de pantalla correspondiente a
-   su dirección relativa (izquierda/derecha/arriba/abajo).
+   PUERTAS DE SALIDA — lado de pantalla donde se dibuja la placa
    ============================================================ */
 function locCenter(id) {
   const L = LOCS[id];
@@ -266,7 +291,7 @@ function exitsFor(charId, from) {
   return list.filter(to => canGoTo(charId, to));
 }
 
-/* Duración del tramo a pie entre dos salas (según distancia real del mapa) */
+/* Duración del tramo a pie entre dos salas */
 function walkDur(from, to) {
   const A = locCenter(from), B = locCenter(to);
   const d = Math.hypot(B.cx - A.cx, B.cy - A.cy);
