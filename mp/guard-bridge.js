@@ -39,6 +39,9 @@
         freddy: 'freddy activity',
         foxy: null // foxy usa 'fox progress'
     };
+    const AI_COUNTER = {
+        bonnie: 'bonie AI', chica: 'chica AI', freddy: 'freddy AI', foxy: 'foxy AI'
+    };
     const ROOM_INDEX = {
         bonnie: { '1A': 0, '1B': 2, '5': 3, '2A': 4, '3': 5, '2B': 6 },
         chica: { '1A': 0, '1B': 2, '7': 3, '6': 4, '4A': 5, '4B': 6 },
@@ -312,6 +315,92 @@
     // ---------------------------------------------------------
     let host = null;
 
+    // ---------------------------------------------------------
+    // VISTA DE LA PUERTA CON LA LUZ: si el guardia mantiene la luz y
+    // hay un animatrónico en el marco (act=7) con la puerta ABIERTA,
+    // se le ve asomado en el vano (como el juego original).
+    // ---------------------------------------------------------
+    function updateDoorViews() {
+        const a = app();
+        if (!a || !a.canvas) return;
+        ['L', 'R'].forEach(side => {
+            const id = 'mp-doorview-' + side;
+            let d = document.getElementById(id);
+            const doorOpen = (side === 'L')
+                ? (img('left door') !== DOOR_IMG.L.closed)
+                : (img('right door') !== DOOR_IMG.R.closed);
+            const lightOn = lightHold[side];
+            const atDoor = Object.keys(state.players).filter(r => {
+                if (r === 'foxy') return false;
+                const expected = (r === 'bonnie') ? 'L' : 'R';
+                if (expected !== side) return false;
+                return rs(ACTIVITY_COUNTER[r]) === 7;
+            });
+            const show = lightOn && doorOpen && atDoor.length > 0 && state.phase === 'night' && rs('viewing') === 0;
+            if (!show) { if (d) d.remove(); return; }
+            // posición relativa al canvas (el despacho es panorámico y scrollea)
+            const rect = a.canvas.getBoundingClientRect();
+            const scale = rect.width / a.gaCxWin;
+            const scroll = a.run ? (a.run.rhWindowX || 0) : 0;
+            let x1, x2;
+            if (side === 'L') { x1 = 95 - scroll; x2 = 330 - scroll; }
+            else { x1 = 1270 - scroll; x2 = 1500 - scroll; }
+            const cssX1 = rect.left + Math.max(0, x1) * scale;
+            const cssX2 = rect.left + Math.min(a.gaCxWin, x2) * scale;
+            if (!d) {
+                d = document.createElement('div');
+                d.id = id;
+                d.style.cssText = 'position:fixed;z-index:99997;pointer-events:none;display:flex;align-items:flex-end;overflow:hidden;';
+                document.body.appendChild(d);
+            }
+            d.style.left = cssX1 + 'px';
+            d.style.width = Math.max(30, cssX2 - cssX1) + 'px';
+            d.style.top = (rect.top + rect.height * 0.12) + 'px';
+            d.style.height = (rect.height * 0.82) + 'px';
+            const html = atDoor.map(r =>
+                '<img src="' + MP_URL + 'assets/jumpscares/' + r + '.png" ' +
+                'style="flex:1;min-width:0;height:100%;object-fit:cover;object-position:top center;filter:brightness(.9) contrast(1.05);">').join('');
+            if (d.__h !== html) { d.__h = html; d.innerHTML = html; }
+        });
+    }
+
+    // Vigilante del ASALTO A LA PUERTA (100 ms). Cadena determinista:
+    //   ataque → 7 (marco de la puerta, el guardia puede cerrar)
+    //   → si la puerta sigue abierta tras ENTRY_MS → 8 (ENTRA a la
+    //     oficina) y el JUEGO ORIGINAL ejecuta el kill (jumpscare al
+    //     bajar el monitor — o automáticamente tras la entrada).
+    //   → si el guardia cierra, la retracción original lo devuelve al comedor.
+    const DOOR_ENTRY_MS = 4200;
+    function watchDoorAssaults() {
+        const now = Date.now();
+        Object.keys(state.players).forEach(role => {
+            const p = state.players[role];
+            if (!p || !p.doorAssault) return;
+            const idx = rs(ACTIVITY_COUNTER[role]);
+            if (idx === 8) {
+                // ya entró: el juego ejecuta el kill original
+                p.doorAssault = false;
+                host && host.broadcast({ t: 'anim', role, room: 'doorIn' });
+                log(role.toUpperCase() + ' ENTRÓ a la oficina — kill original en camino');
+            } else if (idx != null && idx < 7) {
+                // el juego/retirada lo sacó de la puerta
+                p.doorAssault = false;
+            } else if (idx === 7) {
+                // sigue en el marco: ¿la puerta sigue abierta?
+                const doorClosed = (role === 'bonnie')
+                    ? (img('left door') === DOOR_IMG.L.closed)
+                    : (img('right door') === DOOR_IMG.R.closed);
+                if (doorClosed) return;         // la retracción lo devolverá
+                if (now - (p.assaultStartedAt || 0) >= DOOR_ENTRY_MS) {
+                    // ventana del guardia vencida: ENTRAR (kill original)
+                    setRS(ACTIVITY_COUNTER[role], 8);
+                    host && host.broadcast({ t: 'anim', role, room: 'doorIn' });
+                    log(role.toUpperCase() + ' ENTRA a la oficina (puerta abierta, ventana vencida)');
+                }
+            }
+        });
+    }
+
     async function startHost() {
         await loadScript('https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js');
         await loadScript(MP_URL + 'net.js');
@@ -385,7 +474,13 @@
             if (s.frame === 2) { state.lastPositions = s.positions; state.lastState = s; }
             host.broadcast({ t: 'state', s });
             updateBadge(s);
-            if (state.phase === 'night') applyMarkers();
+            if (state.phase === 'night') {
+                applyMarkers();
+                watchDoorAssaults();
+                updateDoorViews();
+            } else {
+                updateDoorViews();   // limpia overlays fuera de la noche
+            }
         }, 100);
 
         // sincronizar posiciones desde el juego (retiradas tras ataque bloqueado, etc.)
@@ -485,7 +580,7 @@
 
     function detectKiller() {
         const pos = state.lastPositions || {};
-        if (pos.foxy === 4) return 'foxy';
+        if (pos.foxy === 4 || pos.foxy === 5) return 'foxy';   // 5 = sprint activo
         for (const r of ['bonnie', 'chica', 'freddy']) if (pos[r] != null && pos[r] >= 7) return r;
         // apagón (energía a 0): fue Freddy
         if (state.lastState && (state.lastState.powerPct === 0 || state.lastState.power === 0)) return 'freddy';
@@ -606,8 +701,16 @@
         setRS(ACTIVITY_COUNTER[role], 7);
         p.attackAt = now;
         p.roomChangedAt = 0;
+        p.doorAssault = true;
+        p.assaultStartedAt = now;
+        // Cadena determinista de la puerta: el jugador queda en el MARCO
+        // (7) y el vigilante lo entra (8) tras DOOR_ENTRY_MS si el guardia
+        // no cierra — a partir de ahí el JUEGO ORIGINAL ejecuta el kill
+        // (jumpscare al bajar el monitor). Antes la IA congelada dejaba
+        // el asalto clavado en 7 para siempre: ni se veía en el marco
+        // ni mataba jamás.
         try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true })); } catch (e) { }
-        log(role.toUpperCase() + ' entra por la puerta ' + (role === 'bonnie' ? 'izquierda' : 'derecha'));
+        log(role.toUpperCase() + ' acecha la puerta ' + (role === 'bonnie' ? 'izquierda' : 'derecha'));
     }
 
     // ---------------------------------------------------------

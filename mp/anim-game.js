@@ -111,6 +111,7 @@
         foxPeek: 0,
         attackBusy: false,
         atDoor: false,
+        enteredOffice: false,
         attackAt: 0,
         walking: false,
         walkDest: null,
@@ -263,6 +264,15 @@
         }, dur);
     }
 
+    // Vista en primera persona del MARCO DE LA PUERTA de la oficina
+    function setDoorView() {
+        const left = (ROLE === 'bonnie');
+        setRoomImage(left ? 'doorL' : 'doorR');
+        $('roomname').textContent = left
+            ? 'MARCO DE LA PUERTA IZQUIERDA'
+            : 'MARCO DE LA PUERTA DERECHA';
+    }
+
     function cancelWalk(msg) {
         if (!cli.walking) { if (msg) toast(msg); return; }
         cli.walking = false;
@@ -403,6 +413,7 @@
         updateAbilityUI();
     }
 
+
     function updateAbilityUI() {
         const now = Date.now();
         const cdJ = Math.max(0, 15000 - (now - cli.cooldown.jumpscare));
@@ -466,6 +477,7 @@
             const iWin = by === ROLE;
             cli.attackBusy = false;
             cli.atDoor = false;
+            cli.enteredOffice = false;
             cli.walking = false;
             view.classList.remove('walk', 'fast');
             showScreen(
@@ -478,6 +490,7 @@
         } else if (p === 'win') {
             cli.attackBusy = false;
             cli.atDoor = false;
+            cli.enteredOffice = false;
             showScreen(
                 roleIconTag() +
                 '<h1 class="win">6 AM</h1>' +
@@ -496,7 +509,7 @@
                 cli.foxPeek = fp;
                 setFoxPeek(fp);
             }
-            view.classList.toggle('running', fp === 4 && cli.attackBusy);
+            view.classList.toggle('running', (fp === 4 || fp === 5) && cli.attackBusy);
             // tras la corrida, el juego devuelve a Foxy a la cortina
             if (fp === 0 && cli.attackBusy) {
                 cli.attackBusy = false;
@@ -509,12 +522,25 @@
         }
         const act = s.positions[ROLE];
         const room = IDX_ROOM[ROLE][act];
-        if (act != null && act >= 7) {
-            // estás en el marco de la puerta: el juego controla
+        if (act != null && act >= 7 && cli.phase === 'night') {
+            // estás en el marco de la puerta (7) o DENTRO de la oficina (8):
+            // el juego original controla todo lo que sigue
             if (!cli.atDoor) {
                 cli.atDoor = true;
+                setDoorView();
                 renderNav();
-                toast('Estás en el marco de la puerta... ¡el guardia decide tu suerte!');
+                toast('Te asomas al marco de la puerta de la oficina...');
+            }
+            if (act >= 8 && !cli.enteredOffice) {
+                cli.enteredOffice = true;
+                toast('¡ENTRASTE A LA OFICINA! Cuando el guardia baje el monitor... ¡adiós guardia!');
+                playLocal('footstep.mp3', 0.55);
+            }
+            // aviso: el guardia cerró la puerta mientras estás en el marco
+            const myDoorClosed = (ROLE === 'bonnie') ? s.doorL : s.doorR;
+            if (act === 7 && myDoorClosed && !cli.enteredOffice && Date.now() - (cli._doorShutAt || 0) > 6000) {
+                cli._doorShutAt = Date.now();
+                toast('¡El guardia cerró la puerta! Te retirarán al comedor...');
             }
             return;
         }
@@ -523,6 +549,12 @@
             const wasDoor = cli.atDoor;
             cli.atDoor = false;
             cli.attackBusy = false;
+            cli.enteredOffice = false;
+            if (wasDoor) {
+                const r = room || cli.room;   // por si el contador aún no define sala
+                cli.room = r;
+                setView(r);   // imagen + nombre de sala correctos (siempre)
+            }
             renderNav();
             toast(wasDoor ? 'Puerta cerrada: te retiras al comedor. Podrás volver a intentarlo.' : 'Te retiran de la puerta.');
         }
@@ -587,6 +619,7 @@
                 cli.night = m.night || cli.night;
                 cli.attackBusy = false;
                 cli.atDoor = false;
+                cli.enteredOffice = false;
                 cli.walking = false;
                 view.classList.remove('walk', 'fast', 'running');
                 cli.foxPeek = 0;
