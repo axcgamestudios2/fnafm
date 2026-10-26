@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FNAF 1 MP — Animatrónico</title>
+    <link rel="icon" href="../1/favicon.ico" />
+    <style>
+        html {
+            display: block;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            background: #000;
+            height: 100%;
+            font-family: monospace;
+            color: #cfcfcf;
+            overflow: hidden;
+        }
+
+        #view {
+            position: fixed;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            filter: brightness(0.92);
+            transition: filter 0.25s;
+        }
+
+        .light-on #view { filter: brightness(1.35) saturate(1.15); }
+
+        .vignette {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 3;
+            background: radial-gradient(ellipse at center, transparent 52%, rgba(0, 0, 0, 0.85) 100%);
+        }
+
+        .glitch {
+            position: fixed;
+            inset: 0;
+            background-image: url(../1/resources/background.gif);
+            background-position: center;
+            background-size: cover;
+            pointer-events: none;
+            opacity: 0;
+            z-index: 4;
+            transition: opacity 0.12s;
+            mix-blend-mode: screen;
+        }
+
+        .glitch.on { opacity: 0.9; }
+
+        .watched {
+            position: fixed;
+            top: 3.4vh;
+            left: 50%;
+            transform: translate(-50%, 0);
+            z-index: 6;
+            color: #ff4d4d;
+            font-size: 1.5vw;
+            font-weight: bold;
+            letter-spacing: 0.25vw;
+            text-shadow: 0 0 1vw rgba(255, 40, 40, 0.8);
+            display: none;
+            animation: blink 0.7s infinite;
+        }
+
+        .watched.on { display: block; }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+
+        #hud {
+            position: fixed;
+            top: 1.6vh;
+            left: 2vw;
+            right: 2vw;
+            display: flex;
+            justify-content: space-between;
+            z-index: 6;
+            font-size: 1.25vw;
+            text-shadow: 0 0 0.6vw black;
+        }
+
+        #hud .item { background: rgba(0, 0, 0, 0.55); padding: 0.5vh 1vw; }
+        #hud .pw-low { color: #ff5d5d; }
+
+        #roomname {
+            position: fixed;
+            top: 8.2vh;
+            left: 50%;
+            transform: translate(-50%, 0);
+            z-index: 6;
+            font-size: 1.6vw;
+            letter-spacing: 0.35vw;
+            color: #d8d8d8;
+            text-shadow: 0 0 1vw black;
+            background: rgba(0, 0, 0, 0.45);
+            padding: 0.4vh 1.4vw;
+        }
+
+        #nav {
+            position: fixed;
+            bottom: 3.2vh;
+            left: 50%;
+            transform: translate(-50%, 0);
+            z-index: 6;
+            display: flex;
+            gap: 1.2vw;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 78vw;
+        }
+
+        .navbtn {
+            font-family: monospace;
+            font-size: 1.45vw;
+            font-weight: bold;
+            color: #cfcfcf;
+            background: rgba(0, 0, 0, 0.72);
+            border: 0.16vw solid #555;
+            padding: 1.2vh 1.8vw;
+            cursor: pointer;
+            letter-spacing: 0.12vw;
+            transition: border-color 0.1s, color 0.1s;
+        }
+
+        .navbtn:hover { border-color: #fff; color: #fff; }
+        .navbtn.attack { color: #ff5d5d; border-color: #7a2b2b; }
+        .navbtn.attack:hover { border-color: #ff5d5d; text-shadow: 0 0 0.8vw rgba(255, 60, 60, 0.6); }
+        .navbtn:disabled { opacity: 0.35; cursor: default; }
+
+        #abilities {
+            position: fixed;
+            bottom: 3.2vh;
+            right: 2vw;
+            z-index: 6;
+            display: flex;
+            gap: 1vw;
+        }
+
+        .ab {
+            font-family: monospace;
+            font-size: 1.15vw;
+            color: #ffd34d;
+            background: rgba(0, 0, 0, 0.72);
+            border: 0.16vw solid #6b5a1e;
+            padding: 1vh 1.3vw;
+            cursor: pointer;
+            letter-spacing: 0.1vw;
+            min-width: 9vw;
+            text-align: center;
+        }
+
+        .ab:hover { border-color: #ffd34d; }
+        .ab:disabled { opacity: 0.3; border-color: #444; cursor: default; }
+        .ab .cd { display: block; font-size: 0.9vw; color: #888; }
+
+        #screen {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.94);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: 2.2vh;
+        }
+
+        #screen h1 { font-size: 3.2vw; margin: 0; letter-spacing: 0.3vw; }
+        #screen .sub { font-size: 1.4vw; color: #9a9a9a; max-width: 60vw; line-height: 1.8; }
+        #screen .big { font-size: 6vw; }
+        #screen .win { color: #ffd34d; text-shadow: 0 0 2vw rgba(255, 211, 77, 0.5); }
+        #screen .dead { color: #ff5d5d; text-shadow: 0 0 2vw rgba(255, 40, 40, 0.6); }
+
+        .roletag {
+            position: fixed;
+            top: 1.6vh;
+            left: 50%;
+            transform: translate(-50%, 0);
+            z-index: 6;
+            font-size: 1.1vw;
+            color: #ffd34d;
+            letter-spacing: 0.3vw;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 0.4vh 1.2vw;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 12vh;
+            left: 50%;
+            transform: translate(-50%, 0);
+            z-index: 9;
+            font-size: 1.3vw;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 1vh 2vw;
+            border-left: 0.4vw solid #ffd34d;
+            opacity: 0;
+            transition: opacity 0.2s;
+            max-width: 60vw;
+        }
+
+        .toast.on { opacity: 1; }
+
+        .fade { animation: fadein 0.35s; }
+        @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+
+<body>
+    <div id="view"></div>
+    <div class="vignette"></div>
+    <div class="glitch" id="glitch"></div>
+    <div class="watched" id="watched">⚠ TE ESTÁN VIENDO ⚠</div>
+    <div class="roletag" id="roletag"></div>
+    <div id="hud">
+        <span class="item" id="h-hour">--:--</span>
+        <span class="item" id="h-power">ENERGÍA: --%</span>
+        <span class="item" id="h-doors">PUERTAS: I -- / D --</span>
+    </div>
+    <div id="roomname">—</div>
+    <div id="nav"></div>
+    <div id="abilities">
+        <button class="ab" id="ab-jump">[J] JUMPSCARE<span class="cd" id="cd-jump">listo</span></button>
+        <button class="ab" id="ab-spec">[Q] <span id="spec-name">HABILIDAD</span><span class="cd" id="cd-spec">listo</span></button>
+    </div>
+    <div class="toast" id="toast"></div>
+    <div id="screen"></div>
+
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="net.js"></script>
+    <script src="anim-game.js"></script>
+</body>
+
+</html>

@@ -1,136 +1,188 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>FNAF 1 Multijugador</title>
-<link rel="icon" href="resources/img/menu_face.png">
-<link rel="stylesheet" href="css/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Five Nights at Freddy's 1 — Multijugador</title>
+    <link rel="icon" href="1/favicon.ico" />
+    <style>
+        html {
+            display: block;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        body {
+            position: relative;
+            background-color: black;
+            background-image: url(1/resources/office.png);
+            background-position: center;
+            background-size: cover;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            height: 100%;
+            font-family: monospace;
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        .selection {
+            height: auto;
+            min-height: 100vh;
+            width: 100%;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .launcher-text {
+            position: absolute;
+            left: 50%;
+            transform: translate(-50%, 0);
+            bottom: 2.5vh;
+            z-index: 1;
+        }
+
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+        }
+
+        .glitch {
+            position: absolute;
+            background-image: url(1/resources/background.gif);
+            background-position: center;
+            background-size: 50vw;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            opacity: 0.75;
+            z-index: -1;
+        }
+
+        #title {
+            position: absolute;
+            top: 10vh;
+            left: 5vw;
+            z-index: 1;
+            height: 20vh;
+        }
+
+        #animatronic {
+            position: absolute;
+            top: -5vh;
+            right: 7vw;
+            height: 120vh;
+        }
+
+        .menu {
+            position: absolute;
+            left: 50%;
+            transform: translate(-50%, 0);
+            bottom: 14vh;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2.2vh;
+            width: 85vw;
+        }
+
+        .btn {
+            font-family: monospace;
+            font-weight: bold;
+            font-size: 2.6vw;
+            color: #cfcfcf;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            letter-spacing: 0.15vw;
+            text-shadow: 0 0 0.6vw rgba(255, 255, 255, 0.25);
+            transition: color 0.08s linear, text-shadow 0.08s linear;
+        }
+
+        .btn:hover {
+            color: #ffffff;
+            text-shadow: 0 0 1vw rgba(255, 255, 255, 0.8);
+        }
+
+        .btn.small {
+            font-size: 1.4vw;
+            color: #8a8a8a;
+        }
+
+        .note {
+            color: #7d7d7d;
+            font-size: 1.1vw;
+            font-family: monospace;
+            text-align: center;
+            max-width: 46vw;
+            line-height: 1.7;
+            margin-top: 1vh;
+        }
+
+        .new {
+            color: #ffd34d;
+            font-size: 0.95vw;
+            letter-spacing: 0.3vw;
+            vertical-align: super;
+        }
+    </style>
 </head>
+
 <body>
-
-<!-- ==================== PANTALLAS ==================== -->
-
-<!-- MENÚ (estilo pantalla de título original: título arriba-izquierda,
-     opciones centradas a la izquierda, Freddy centro-derecha y TV vieja) -->
-<section class="screen active" id="s-menu">
-  <div class="menu-bg"></div>
-  <img class="menu-face" src="resources/img/menu_face.png" alt="">
-  <img class="menu-itsme" src="resources/img/itsme.png" alt="">
-  <div class="menu-head">
-    <img class="menu-title" src="resources/img/title.png" alt="Five Nights at Freddy's">
-    <div class="game-sub">MULTIJUGADOR</div>
-  </div>
-  <div class="menu-box">
-    <button class="mi" id="btn-create">Nueva partida<span class="mi-sub">crea la sala — serás el GUARDIA</span></button>
-    <button class="mi" id="btn-join">Unirse a partida<span class="mi-sub">con el código de sala de un amigo</span></button>
-    <div class="menu-field">
-      <label for="inp-name">TU NOMBRE</label>
-      <input id="inp-name" maxlength="12" placeholder="Jugador" autocomplete="off">
+    <div class="selection" id="selection">
+        <img id="title" src="1/resources/title.png">
+        <img id="animatronic" src="1/resources/animatronic.png">
+        <div class="menu">
+            <a href="1/index.html"><button class="btn">&gt; JUGAR SOLO</button></a>
+            <a href="mp/lobby.html"><button class="btn">&gt; MULTIJUGADOR <span class="new">NUEVO</span></button></a>
+            <div class="note">MULTIJUGADOR: crea una partida como GUARDIA o únete como
+                FOXY, BONNIE, CHICA o FREDDY. El guardia juega la noche original;
+                los animatrónicos se mueven en primera persona por la pizzería.
+                Pulsa <b>-=</b> para pantalla completa.</div>
+        </div>
+        <a href="https://discord.gg/xuu8TnSY4b">
+            <div class="launcher-text"><img src="1/resources/launcher-text.png" style="width: 45vw;"></div>
+        </a>
     </div>
-    <div class="menu-field">
-      <label for="inp-code">CÓDIGO DE SALA</label>
-      <input id="inp-code" maxlength="5" placeholder="ABC12" autocomplete="off" class="code-inp"
-             style="text-transform:uppercase">
-    </div>
-    <div class="menu-note">
-      El anfitrión crea la sala y comparte el <b>código</b> (2-5 jugadores).<br>
-      El anfitrión es el <b>Guardia</b>; el resto controla a <b>Freddy, Bonnie, Chica o Foxy</b>,
-      avanzando <b>puerta a puerta, caminando</b> hasta la oficina. Cada animatrónico tiene una
-      <b>habilidad especial</b> con recarga. ¡En la puerta no se puede acampar!
-    </div>
-  </div>
-  <div class="menu-ver">MULTIJUGADOR P2P · v2.0</div>
-  <div class="tv-fx"><div class="tv-roll"></div></div>
-  <div class="menu-static">
-    <img src="resources/img/static1.png" alt="">
-    <img src="resources/img/static2.png" alt="">
-    <img src="resources/img/static3.png" alt="">
-  </div>
-  <div class="vignette-layer"></div>
-</section>
-
-<!-- LOBBY -->
-<section class="screen" id="s-lobby">
-  <div class="noise-layer">
-    <img src="resources/img/static1.png" alt="">
-    <img src="resources/img/static2.png" alt="">
-    <img src="resources/img/static3.png" alt="">
-  </div>
-  <div class="lobby-wrap">
-    <div class="lobby-left">
-      <h2 id="lobby-title">SALA</h2>
-      <div class="code-label">CÓDIGO DE SALA</div>
-      <div class="room-code" id="room-code">·····</div>
-      <div class="code-hint">Compártelo con tus amigos (2-5 jugadores)</div>
-      <div id="lobby-status" class="lobby-status"></div>
-      <div class="lobby-players-wrap">
-        <div class="lp-title">JUGADORES <span id="lobby-count">1/5</span></div>
-        <div id="lobby-players"></div>
-      </div>
-      <div id="start-zone">
-        <button id="btn-start" class="mbtn create" disabled>EMPEZAR LA NOCHE</button>
-        <div id="start-note" class="start-note">Esperando jugadores…</div>
-      </div>
-    </div>
-    <div class="lobby-right">
-      <div class="lp-title">ELIGE TU ANIMATRÓNICO</div>
-      <div id="char-picker" class="char-picker"></div>
-    </div>
-  </div>
-</section>
-
-<!-- GUARDIA (oficina en 3 paneles — 1ª versión) -->
-<section class="screen" id="s-guard">
-  <div id="office-view"></div>
-  <div id="powerout-fx"><div class="po-freddy"><img src="resources/img/jsq_freddy_00.png" alt=""></div></div>
-  <div id="cam-help"> ESPACIO cámaras · A/D puertas · Z/X luces (mantener)</div>
-</section>
-
-<!-- ANIMATRÓNICO (vista inmersiva por puertas) -->
-<section class="screen" id="s-anim">
-  <div id="anim-head"></div>
-  <div id="anim-status"></div>
-  <div id="anim-main"></div>
-</section>
-
-<!-- FIN -->
-<section class="screen" id="s-end">
-  <div class="noise-layer">
-    <img src="resources/img/static1.png" alt="">
-    <img src="resources/img/static2.png" alt="">
-    <img src="resources/img/static3.png" alt="">
-  </div>
-  <div class="end-wrap">
-    <img id="end-img" alt="">
-    <h2 id="end-title">—</h2>
-    <div id="end-sub"></div>
-    <div id="end-stats"></div>
-    <div class="end-btns">
-      <button id="btn-again" class="mbtn create">OTRA NOCHE</button>
-      <button id="btn-exit" class="mbtn join">SALIR DE LA SALA</button>
-      <div id="wait-host" style="display:none">…esperando al anfitrión</div>
-    </div>
-  </div>
-</section>
-
-<!-- ==================== CAPAS FX ==================== -->
-<div id="monitor"></div>
-<div id="night-intro" hidden></div>
-<div id="fx-jumpscare"><img alt="susto"></div>
-<div id="fx-static"></div>
-<div id="fx-toast"></div>
-
-<!-- ==================== SCRIPTS ==================== -->
-<script src="peer.min.js"></script>
-<script src="js/config.js"></script>
-<script src="js/audio.js"></script>
-<script src="js/fx.js"></script>
-<script src="js/net.js"></script>
-<script src="js/game.js"></script>
-<script src="js/lobby.js"></script>
-<script src="js/guard.js"></script>
-<script src="js/anim.js"></script>
-<script src="js/main.js"></script>
+    <div class="glitch"></div>
+    <img src="1/resources/vignette.png" class="vignette">
+    <script>
+        // Evita el movimiento táctil (como el original)
+        window.addEventListener("scroll", preventMotion, false);
+        window.addEventListener("touchmove", preventMotion, false);
+        function preventMotion(event) {
+            window.scrollTo(0, 0);
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        // Pantalla completa con -=
+        const pressedKeys = {};
+        document.addEventListener('keydown', event => {
+            pressedKeys[event.key] = true;
+            if (pressedKeys['-'] && pressedKeys['=']) {
+                document.documentElement.requestFullscreen();
+                delete pressedKeys[event.key];
+            }
+        });
+        document.addEventListener('keyup', (event) => {
+            delete pressedKeys[event.key];
+        });
+    </script>
 </body>
+
 </html>
