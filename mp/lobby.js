@@ -1,18 +1,28 @@
 // ============================================================
-// FNAF 1 MP — Lobby: crear / unirse / elegir rol / empezar
-// El creador es el GUARDIA (host técnico). Los demás eligen
-// entre FOXY, BONNIE, CHICA y FREDDY. Roles sin jugador
-// quedan controlados por la IA original del juego.
+// FNAF 1 MP — Lobby: crear / unirse / roles ALEATORIOS
+// - El creador de la partida es SIEMPRE el GUARDIA (obligatorio).
+// - Los que se unen reciben un animatrónico ALEATORIO
+//   (FOXY, BONNIE, CHICA o FREDDY) asignado automáticamente.
+// - Sin selector de personaje.
+// - Roles sin jugador quedan controlados por la IA original.
 // ============================================================
 
 (function () {
     const ROLES = [
-        { id: 'guard', name: 'GUARDIA', img: 'assets/roles/guard.png' },
-        { id: 'foxy', name: 'FOXY', img: 'assets/roles/foxy.png' },
-        { id: 'bonnie', name: 'BONNIE', img: 'assets/roles/bonnie.png' },
-        { id: 'chica', name: 'CHICA', img: 'assets/roles/chica.png' },
-        { id: 'freddy', name: 'FREDDY', img: 'assets/roles/freddy.png' }
+        { id: 'guard', name: 'GUARDIA', img: 'assets/roles/guard.png', color: '#7ec8ff' },
+        { id: 'foxy', name: 'FOXY', img: 'assets/roles/foxy.png', color: '#ff7043' },
+        { id: 'bonnie', name: 'BONNIE', img: 'assets/roles/bonnie.png', color: '#a98bff' },
+        { id: 'chica', name: 'CHICA', img: 'assets/roles/chica.png', color: '#ffd54d' },
+        { id: 'freddy', name: 'FREDDY', img: 'assets/roles/freddy.png', color: '#c49a6c' }
     ];
+    const ANIM_IDS = ['foxy', 'bonnie', 'chica', 'freddy'];
+    const ABILITIES = {
+        guard: 'Sobrevive la noche con puertas, luces y cámaras (juego ORIGINAL).',
+        foxy: 'SPRINT: corres rápido entre escenarios · Jumpscare inofensivo',
+        bonnie: 'INTERFERENCIA: saboteas las cámaras del guardia · Jumpscare inofensivo',
+        chica: 'RUIDO EN COCINA: confundes al guardia con cazuelas · Jumpscare inofensivo',
+        freddy: 'RISA SOMBRÍA: luces que parpadean en la oficina · Jumpscare inofensivo'
+    };
 
     const $ = (id) => document.getElementById(id);
     const scrHome = $('scr-home'), scrRoom = $('scr-room');
@@ -22,8 +32,11 @@
     let players = [];         // [{name, role}]
     let myRole = null;
     let myName = null;
-    let conns = [];           // host: [{conn, entry}]
+    let conns = [];           // host: [{conn, name, role}]
     let started = false;
+
+    function roleInfo(id) { return ROLES.find(r => r.id === id) || { name: id, img: '', color: '#999' }; }
+    function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
     // ---------- utilidades UI ----------
     function askName(def) {
@@ -31,50 +44,45 @@
         if (!n) {
             n = prompt('Tu nombre:', def || ('Jugador' + Math.floor(Math.random() * 90 + 10)));
             if (n === null) n = def || 'Jugador';
+            n = n.slice(0, 12) || 'Jugador';
             sessionStorage.setItem('fnafm-name', n);
         }
         return n;
     }
 
-    function renderRoles() {
-        const cont = $('roles');
+    // Lista de jugadores con icono y color de rol
+    function renderPlayers() {
+        const cont = $('plist');
         cont.innerHTML = '';
-        ROLES.forEach(r => {
+        players.forEach(p => {
+            const r = roleInfo(p.role);
             const div = document.createElement('div');
-            div.className = 'role' + (r.id === 'guard' ? ' g' : '') + (myRole === r.id ? ' selected' : '');
-            const who = players.find(p => p.role === r.id);
-            let whoTxt = '';
-            if (who) whoTxt = who.name + (who.role === myRole ? ' (tú)' : '');
-            if (r.id === 'guard' && mode === 'host') whoTxt = myName + ' (tú · host)';
-            div.innerHTML = '<img class="rpic" src="' + r.img + '"><div class="rname">' + r.name + '</div><div class="rwho">' + whoTxt + '</div>';
-            if (r.id !== 'guard' || mode === 'host') {
-                if (!who || who.role === myRole) {
-                    div.addEventListener('click', () => pickRole(r.id));
-                } else {
-                    div.classList.add('locked');
-                }
-            } else {
-                div.classList.add('locked');
-            }
+            div.className = 'prow' + (p.role === myRole ? ' me' : '');
+            div.innerHTML =
+                '<img class="pic" src="' + r.img + '">' +
+                '<span class="pname" style="color:' + r.color + ';">' + p.name + '</span>' +
+                '<span class="ptag">' + r.name + '</span>';
             cont.appendChild(div);
         });
-        $('players').innerHTML = players.length
-            ? 'Jugadores: ' + players.map(p => p.name + ' (' + roleName(p.role) + ')').join(' · ')
-            : '';
-        $('b-start').classList.toggle('hidden', mode !== 'host');
+        // marcador de "esperando" si hay huecos
+        const animCount = players.filter(p => p.role !== 'guard').length;
+        $('room-status').textContent = mode === 'host'
+            ? (animCount === 0
+                ? 'Esperando animatrónicos... (también puedes empezar solo: los roles vacíos serán IA)'
+                : animCount + '/4 animatrónicos conectados. Pulsa EMPEZAR cuando quieras.')
+            : 'Esperando a que el guardia empiece la noche...';
     }
 
-    function roleName(id) { const r = ROLES.find(x => x.id === id); return r ? r.name : id; }
-
-    function pickRole(role) {
-        if (mode === 'host') { myRole = role; players = hostPlayers(); renderRoles(); return; }
-        sendToHost({ t: 'pick', role });
-    }
-
-    function hostPlayers() {
-        const list = [{ name: myName, role: 'guard' }];
-        conns.forEach(c => { if (c.role) list.push({ name: c.name, role: c.role }); });
-        return list;
+    function showMyRole() {
+        const box = $('myrole');
+        if (!myRole) { box.classList.add('hidden'); return; }
+        const r = roleInfo(myRole);
+        box.classList.remove('hidden');
+        box.innerHTML =
+            '<div class="mrlabel">' + (mode === 'host' ? 'TU ROL (ANFITRIÓN)' : 'TU ROL (ALEATORIO)') + '</div>' +
+            '<img class="mrpic" src="' + r.img + '">' +
+            '<div class="mrname" style="color:' + r.color + '; border-color:' + r.color + ';">' + r.name + '</div>' +
+            '<div class="mrdesc">' + ABILITIES[myRole] + '</div>';
     }
 
     function broadcast(obj) {
@@ -90,8 +98,11 @@
         scrHome.classList.add('hidden');
         scrRoom.classList.remove('hidden');
         $('room-code').textContent = code;
-        $('room-label').textContent = mode === 'host' ? 'PARTIDA CREADA — comparte este código:' : 'CÓDIGO DE LA PARTIDA:';
-        renderRoles();
+        $('room-label').textContent = mode === 'host'
+            ? 'PARTIDA CREADA — comparte este código:'
+            : 'CÓDIGO DE LA PARTIDA:';
+        renderPlayers();
+        showMyRole();
     }
 
     function goGame() {
@@ -104,12 +115,13 @@
         }
     }
 
-    // ---------- HOST ----------
+    // ---------- HOST (guardia obligatorio) ----------
     function hostStart() {
         mode = 'host';
         code = MP.makeCode();
         myName = askName('Guardia');
-        myRole = 'guard';
+        myRole = 'guard'; // el anfitrión es SIEMPRE el guardia
+        players = [{ name: myName, role: 'guard' }];
         peer = MP.lobbyHost(code);
         peer.on('open', () => {
             $('home-status').textContent = 'Sala lista.';
@@ -119,39 +131,34 @@
             conn.on('data', (d) => {
                 const m = (typeof d === 'string') ? JSON.parse(d) : d;
                 if (m.t === 'hello') {
-                    const entry = { conn, name: m.name, role: null };
-                    conns.push(entry);
-                    conn.__e = entry;
-                    conn.send(JSON.stringify({ t: 'welcome', players: hostPlayers() }));
-                    players = hostPlayers();
-                    renderRoles();
-                } else if (m.t === 'pick') {
-                    const e = conn.__e;
-                    if (!e) return;
-                    // validar rol único
-                    const taken = hostPlayers().some(p => p.role === m.role);
-                    if (!taken && m.role !== 'guard') {
-                        e.role = m.role;
-                        conn.send(JSON.stringify({ t: 'picked', ok: true, role: m.role, players: hostPlayers() }));
-                    } else {
-                        conn.send(JSON.stringify({ t: 'picked', ok: false }));
+                    // asignación ALEATORIA de rol libre
+                    const taken = conns.map(c => c.role);
+                    const free = shuffle(ANIM_IDS.filter(r => !taken.includes(r)));
+                    if (free.length === 0) {
+                        conn.send(JSON.stringify({ t: 'full' }));
+                        setTimeout(() => { try { conn.close(); } catch (e) { } }, 400);
                         return;
                     }
+                    const role = free[0];
+                    const entry = { conn, name: (m.name || 'Jugador').slice(0, 12), role };
+                    conns.push(entry);
+                    conn.__e = entry;
                     players = hostPlayers();
-                    broadcast({ t: 'players', players });
-                    renderRoles();
+                    conn.send(JSON.stringify({ t: 'welcome', role: role, players: players }));
+                    broadcast({ t: 'players', players: players });
+                    renderPlayers();
                 } else if (m.t === 'leave') {
                     conns = conns.filter(c => c.conn !== conn);
                     players = hostPlayers();
-                    broadcast({ t: 'players', players });
-                    renderRoles();
+                    broadcast({ t: 'players', players: players });
+                    renderPlayers();
                 }
             });
             conn.on('close', () => {
                 conns = conns.filter(c => c.conn !== conn);
                 players = hostPlayers();
-                broadcast({ t: 'players', players });
-                renderRoles();
+                broadcast({ t: 'players', players: players });
+                renderPlayers();
             });
         });
         peer.on('error', (e) => {
@@ -159,7 +166,13 @@
         });
     }
 
-    // ---------- CLIENTE ----------
+    function hostPlayers() {
+        const list = [{ name: myName, role: 'guard' }];
+        conns.forEach(c => list.push({ name: c.name, role: c.role }));
+        return list;
+    }
+
+    // ---------- CLIENTE (rol aleatorio) ----------
     function clientStart(c) {
         mode = 'client';
         code = c;
@@ -169,25 +182,31 @@
             tries++;
             if (tries > 20) { $('home-status').innerHTML = '<span class="err">No se encontró la partida.</span>'; return; }
             const p = MP.lobbyConnect(code);
-            let got = false;
             p.on('open', () => {
                 const conn = p.connect(MP.LOBBY_PREFIX + code, { reliable: true });
                 p.__hostConn = conn;
                 conn.on('open', () => {
-                    got = true;
                     peer = p;
                     conn.send(JSON.stringify({ t: 'hello', name: myName }));
-                    enterRoom();
+                    $('home-status').textContent = 'Conectando con la sala...';
                 });
                 conn.on('data', (d) => {
                     const m = (typeof d === 'string') ? JSON.parse(d) : d;
-                    if (m.t === 'welcome' || m.t === 'players' || (m.t === 'picked' && m.ok)) {
-                        if (m.players) players = m.players;
-                        renderRoles();
+                    if (m.t === 'full') {
+                        $('home-status').innerHTML = '<span class="err">PARTIDA COMPLETA (4 animatrónicos + guardia).</span>';
+                        setTimeout(() => { try { p.destroy(); } catch (e) { } }, 300);
+                        return;
                     }
-                    if (m.t === 'picked' && m.ok) myRole = m.role;
-                    if (m.t === 'picked' && !m.ok) alert('Ese rol ya está tomado.');
-                    if (m.t === 'start') { sessionStorage.setItem('fnafm-role', myRole); goGame(); }
+                    if (m.t === 'welcome') {
+                        myRole = m.role;              // rol ALEATORIO asignado por el anfitrión
+                        if (m.players) players = m.players;
+                        enterRoom();
+                    }
+                    if (m.t === 'players') {
+                        players = m.players || players;
+                        renderPlayers();
+                    }
+                    if (m.t === 'start') goGame();
                 });
                 conn.on('close', () => {
                     if (started) return;
@@ -212,7 +231,10 @@
     $('in-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('b-join').click(); });
 
     $('b-start').addEventListener('click', () => {
-        // el guardia no puede empezar sin roles... puede empezar como sea (los vacíos son IA)
+        if (!players.some(p => p.role === 'guard')) { // a fuerza hay guardia
+            alert('Error: falta el guardia.');
+            return;
+        }
         broadcast({ t: 'start' });
         setTimeout(goGame, 250);
     });

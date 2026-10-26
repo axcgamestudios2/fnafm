@@ -133,58 +133,43 @@
             margin: 0.6vh 0 1.6vh 0;
         }
 
-        .roles {
+        /* ---- lista de jugadores ---- */
+        .plist {
             display: flex;
-            justify-content: center;
-            gap: 1.6vw;
-            margin: 1.8vh 0 2.4vh 0;
-            flex-wrap: wrap;
+            flex-direction: column;
+            gap: 0.7vh;
+            margin: 1.6vh auto 1.4vh auto;
+            max-width: 34vw;
         }
 
-        .role {
-            border: 0.18vw solid #3a3a3a;
+        .prow {
+            display: flex;
+            align-items: center;
+            gap: 1vw;
+            background: rgba(0, 0, 0, 0.55);
+            border: 0.12vw solid #2c2c2c;
+            padding: 0.5vh 1vw;
+        }
+
+        .prow.me { border-color: #ffd34d; box-shadow: 0 0 0.8vw rgba(255, 211, 77, 0.25); }
+
+        .prow .pic { width: 2.6vw; height: 2.6vw; min-width: 26px; min-height: 26px; object-fit: contain; }
+        .prow .pname { font-weight: bold; font-size: 1.25vw; letter-spacing: 0.08vw; flex: 1; text-align: left; }
+        .prow .ptag { font-size: 0.95vw; color: #8f8f8f; letter-spacing: 0.15vw; }
+
+        /* ---- mi rol asignado ---- */
+        .myrole {
+            margin: 1.2vh auto 1.8vh auto;
+            border: 0.16vw solid #3a3a3a;
             background: rgba(0, 0, 0, 0.6);
-            padding: 1.2vh 1vw;
-            width: 9.5vw;
-            min-width: 105px;
-            cursor: pointer;
-            transition: border-color 0.1s, box-shadow 0.1s;
-            position: relative;
+            padding: 1.2vh 2vw 1.6vh 2vw;
+            max-width: 40vw;
         }
 
-        .role:hover {
-            border-color: #9c9c9c;
-        }
-
-        .role.locked {
-            cursor: default;
-            opacity: 0.92;
-        }
-
-        .role .rname {
-            font-weight: bold;
-            font-size: 1.35vw;
-            letter-spacing: 0.08vw;
-        }
-
-        .role .rwho {
-            font-size: 0.95vw;
-            color: #ffd34d;
-            margin-top: 0.6vh;
-            min-height: 1.1vh;
-            word-break: break-word;
-        }
-
-        .role .rpic {
-            width: 100%;
-            height: 9vh;
-            object-fit: contain;
-            margin-bottom: 0.6vh;
-            filter: brightness(0.9);
-        }
-
-        .role.g { border-color: #6d6d6d; }
-        .role.selected { border-color: #ffd34d; box-shadow: 0 0 1vw rgba(255, 211, 77, 0.35); }
+        .myrole .mrlabel { font-size: 0.95vw; color: #8f8f8f; letter-spacing: 0.35vw; margin-bottom: 0.8vh; }
+        .myrole .mrpic { height: 10vh; object-fit: contain; margin-bottom: 0.6vh; }
+        .myrole .mrname { display: inline-block; font-size: 1.7vw; font-weight: bold; letter-spacing: 0.25vw; border-bottom: 0.2vw solid; padding: 0 0.6vw 0.4vh 0.6vw; }
+        .myrole .mrdesc { font-size: 1vw; color: #9a9a9a; margin-top: 1vh; line-height: 1.6; }
 
         .players {
             font-size: 1.1vw;
@@ -213,20 +198,20 @@
 
         <!-- pantalla inicial -->
         <div id="scr-home">
-            <button class="btn" id="b-create">&gt; CREAR PARTIDA</button><br>
+            <button class="btn" id="b-create">&gt; CREAR PARTIDA (GUARDIA)</button><br>
             <div class="status">— o —</div>
             <input class="code" id="in-code" maxlength="5" placeholder="CÓDIGO">
             <br><br>
-            <button class="btn" id="b-join">&gt; UNIRSE A PARTIDA</button>
-            <div class="status" id="home-status">El creador de la partida será el GUARDIA.</div>
+            <button class="btn" id="b-join">&gt; UNIRSE A PARTIDA (ANIMATRÓNICO)</button>
+            <div class="status" id="home-status">El anfitrión es SIEMPRE el guardia. Los que se unen reciben un animatrónico ALEATORIO.</div>
         </div>
 
         <!-- sala de espera -->
         <div id="scr-room" class="hidden">
             <div class="status" id="room-label"></div>
             <div class="roomcode" id="room-code"></div>
-            <div class="roles" id="roles"></div>
-            <div class="players" id="players"></div>
+            <div class="myrole hidden" id="myrole"></div>
+            <div class="plist" id="plist"></div>
             <div class="status" id="room-status">Esperando jugadores...</div>
             <button class="btn hidden" id="b-start">&gt; EMPEZAR NOCHE</button><br>
             <button class="btn small" id="b-leave">&gt; salir</button>

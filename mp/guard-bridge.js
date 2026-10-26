@@ -72,6 +72,46 @@
     const CORNER_ROOMS = ['2B', '4B'];
 
     // ---------------------------------------------------------
+    // Animación de CAMINATA de los marcadores en las cámaras:
+    // en vez de teletransportarse, el animatrónico entra caminando
+    // hasta su punto de render con un balanceo de pasos (bob).
+    // ---------------------------------------------------------
+    const markerAnim = {};   // role -> {fromX, fromY, tx, ty, start, dur}
+    let lastViewing = null;
+    let viewChangedAt = 0;
+    const WALK_MS = 950;     // debe coincidir con la caminata del cliente animatrónico
+
+    function stepMarkers(now) {
+        // seguimiento de cambios de cámara (para decidir teletransporte vs caminata)
+        const viewing = rs('viewing');
+        if (viewing !== lastViewing) { lastViewing = viewing; viewChangedAt = now; }
+        Object.keys(markerAnim).forEach(role => {
+            const a = markerAnim[role];
+            const o = find(MARKER[role]);
+            if (!o || !o.roc) { delete markerAnim[role]; return; }
+            const k = Math.min(1, (now - a.start) / a.dur);
+            let x = a.fromX + (a.tx - a.fromX) * k;
+            let y = a.fromY + (a.ty - a.fromY) * k;
+            if (k < 1) {
+                // balanceo de pasos: 2.5 pasos por segundo
+                y += Math.sin(now / 62) * 4.5;
+            }
+            o.hoX = x;
+            o.hoY = y;
+            o.roc.rcChanged = true;
+            if (k >= 1) delete markerAnim[role];
+        });
+    }
+
+    function startMarkerLoop() {
+        function tick(t) {
+            try { stepMarkers(t); } catch (e) { }
+            requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+    }
+
+    // ---------------------------------------------------------
     // Captura de la instancia del Runtime (sin tocar el juego)
     // ---------------------------------------------------------
     let rt = null;
@@ -197,21 +237,39 @@
     //  - esquina (2B/4B) → su botón: el ataque del juego ORIGINAL necesita
     //    arrancar desde ahí para caminar a la puerta y ejecutar el kill
     //  - resto → lejos (invisible)
+    // Si el animatrónico LLEGA a la sala que el guardia está viendo, entra
+    // CAMINANDO desde un lateral (animación) en vez de teletransportarse.
     // Durante un ataque (counter>=7) y para Foxy, manda la lógica del juego.
     function applyMarkers() {
+        const now = performance.now();
         const viewing = rs('viewing');
         const viewedRoom = VIEWING_CAM[viewing] || null;
+        const sameViewForAwhile = (now - viewChangedAt) > 400;
         Object.keys(state.players).forEach(role => {
             if (role === 'foxy') return; // Foxy: fox progress + lógica propia
             const p = state.players[role];
             if (!p.room) return;
             const idx = rs(ACTIVITY_COUNTER[role]);
-            if (idx !== null && idx >= 7) return; // en la puerta/ataque: el juego controla
+            if (idx !== null && idx >= 7) { delete markerAnim[role]; return; } // en la puerta/ataque: el juego controla
+            if (markerAnim[role]) return; // está caminando: no interrumpir
             const o = find(MARKER[role]);
             if (!o || !o.roc) return;
             let spot;
             if (viewedRoom === p.room && YOU_SPOT[p.room]) {
                 spot = YOU_SPOT[p.room];
+                // ¿acaba de entrar a esta sala mientras el guardia la mira? → caminar
+                const justArrived = p.roomChangedAt && (now - p.roomChangedAt < 1500) && p.walkPlayed !== p.room;
+                if (sameViewForAwhile && justArrived) {
+                    p.walkPlayed = p.room;
+                    markerAnim[role] = {
+                        fromX: spot[0] - 250, fromY: spot[1] - 46,
+                        tx: spot[0], ty: spot[1],
+                        start: now, dur: WALK_MS
+                    };
+                    log(role + ' entra caminando a ' + p.room);
+                    return;
+                }
+                p.walkPlayed = p.room;
             } else if (CORNER_ROOMS.includes(p.room)) {
                 spot = BUTTON_SPOT[p.room];
             } else {
@@ -270,7 +328,8 @@
             state.players[role] = {
                 role, name: entry.name, conn: entry.conn,
                 room: (role === 'foxy') ? '1C' : '1A',
-                lastMove: 0, attackAt: 0, cooldown: {}
+                lastMove: 0, attackAt: 0, cooldown: {},
+                roomChangedAt: 0, walkPlayed: null
             };
             try {
                 entry.conn.send(JSON.stringify({
@@ -308,6 +367,7 @@
     }
 
     function startLoops() {
+        startMarkerLoop();   // caminata suave de marcadores (60 fps)
         setInterval(() => {
             const a = app();
             if (!a) return;
@@ -331,19 +391,47 @@
         // sincronizar posiciones desde el juego (retiradas tras ataque bloqueado, etc.)
         setInterval(() => {
             if (state.phase !== 'night') return;
+            const now = performance.now();
             Object.keys(state.players).forEach(role => {
                 const p = state.players[role];
                 if (role === 'foxy') return;
                 const idx = rs(ACTIVITY_COUNTER[role]);
-                if (idx == null || idx === 7) return; // en la puerta: lo maneja el juego
+                if (idx == null || idx === 7) return; // en la puerta: lo maneja la retracción
                 const r = roomFromIndex(role, idx);
                 if (r && p.room !== r) {
                     p.room = r;
+                    p.roomChangedAt = now;   // el juego lo retiró: puede volver a verse caminando
+                    p.walkPlayed = null;
                     try { p.conn.send(JSON.stringify({ t: 'moveOk', room: r })); } catch (e) { }
                     host.broadcast({ t: 'anim', role, room: r });
                 }
             });
         }, 1000);
+
+        // RETIRADA ORIGINAL de la puerta: en el juego original, si el guardia
+        // cierra la puerta, el animatrónico se cansa y vuelve al comedor. Con la
+        // IA congelada ese evento del juego nunca dispara, así que el host lo
+        // reproduce con el mismo comportamiento (7-10s con la puerta cerrada).
+        setInterval(() => {
+            if (state.phase !== 'night') return;
+            const now = Date.now();
+            Object.keys(state.players).forEach(role => {
+                if (role === 'foxy') return;
+                const p = state.players[role];
+                const idx = rs(ACTIVITY_COUNTER[role]);
+                if (idx !== 7) { p.doorClosedSince = 0; p.retractAt = 0; return; }
+                const doorClosed = (role === 'bonnie')
+                    ? (img('left door') === DOOR_IMG.L.closed)
+                    : (img('right door') === DOOR_IMG.R.closed);
+                if (!doorClosed) { p.doorClosedSince = 0; p.retractAt = 0; return; }
+                if (!p.doorClosedSince) {
+                    p.doorClosedSince = now;
+                    p.retractAt = now + 7000 + Math.floor(Math.random() * 3000);
+                    return;
+                }
+                if (p.retractAt && now >= p.retractAt) retractFromDoor(role, 'puerta cerrada demasiado tiempo');
+            });
+        }, 500);
     }
 
     function handleFrameChange(f, prev) {
@@ -359,6 +447,10 @@
             Object.keys(state.players).forEach(role => {
                 const p = state.players[role];
                 p.room = (role === 'foxy') ? '1C' : roomFromIndex(role, rs(ACTIVITY_COUNTER[role]));
+                p.roomChangedAt = 0;
+                p.walkPlayed = null;
+                p.attackAt = 0;
+                delete markerAnim[role];
             });
             host && host.broadcast({ t: 'phase', p: 'night', night: state.night });
             log('Noche ' + state.night + ' iniciada');
@@ -434,8 +526,11 @@
         const p = state.players[role];
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
-        const cd = p.sprintUntil && now < p.sprintUntil ? 500 : 1100;
-        if (now - p.lastMove < cd) return;
+        const cd = p.sprintUntil && now < p.sprintUntil ? 350 : 500;
+        if (now - p.lastMove < cd) {
+            try { entry.conn.send(JSON.stringify({ t: 'moveBad', why: 'demasiado-rapido' })); } catch (e) { }
+            return;
+        }
 
         if (role === 'foxy') return handleFoxyMove(p, entry, now);
 
@@ -450,9 +545,11 @@
         if (ok) {
             p.room = room;
             p.lastMove = now;
+            p.roomChangedAt = performance.now();
+            p.walkPlayed = null;
             applyMarkers();
             try { entry.conn.send(JSON.stringify({ t: 'moveOk', room })); } catch (e) { }
-            host.broadcast({ t: 'anim', role, room });
+            host.broadcast({ t: 'anim', role, room, from: current });
             log(role + ' → ' + room);
         }
     }
@@ -474,7 +571,11 @@
         const p = state.players[role];
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
-        if (now - (p.attackAt || 0) < 12000) return;
+        if (now - (p.attackAt || 0) < 12000) {
+            // SIEMPRE responder: si no, el botón del cliente queda trabado
+            try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'cooldown' })); } catch (e) { }
+            return;
+        }
 
         if (role === 'foxy') {
             const cur = rs('fox progress');
@@ -504,6 +605,7 @@
         }
         setRS(ACTIVITY_COUNTER[role], 7);
         p.attackAt = now;
+        p.roomChangedAt = 0;
         try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true })); } catch (e) { }
         log(role.toUpperCase() + ' entra por la puerta ' + (role === 'bonnie' ? 'izquierda' : 'derecha'));
     }
@@ -511,11 +613,31 @@
     // ---------------------------------------------------------
     // Habilidades
     // ---------------------------------------------------------
+    function retractFromDoor(role, why) {
+        const p = state.players[role];
+        if (!p) return;
+        setRS(ACTIVITY_COUNTER[role], 2);   // comportamiento original: vuelve al comedor
+        p.room = roomFromIndex(role, 2) || '1B';
+        p.roomChangedAt = performance.now();
+        p.walkPlayed = null;
+        p.doorClosedSince = 0;
+        p.retractAt = 0;
+        try { p.conn.send(JSON.stringify({ t: 'moveOk', room: p.room })); } catch (e) { }
+        host.broadcast({ t: 'anim', role, room: p.room });
+        log(role + ' se retira de la puerta (' + why + ') — como el original');
+    }
+
     function handleAbility(m, entry) {
         const role = entry.role;
         const p = state.players[role];
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
+
+        // Retirada voluntaria de la puerta (sin cooldown)
+        if (m.kind === 'doorRetreat') {
+            if (rs(ACTIVITY_COUNTER[role]) === 7) retractFromDoor(role, 'decisión del jugador');
+            return;
+        }
 
         // Foxy retrocede tras la cortina (sin cooldown largo)
         if (m.kind === 'foxyRetreat') {

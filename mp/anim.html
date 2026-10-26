@@ -23,7 +23,14 @@
             font-family: monospace;
             color: #cfcfcf;
             overflow: hidden;
+            --rc: #cfcfcf;
+            /* color del rol (lo fija JS) */
         }
+
+        body.foxy { --rc: #ff7043; }
+        body.bonnie { --rc: #a98bff; }
+        body.chica { --rc: #ffd54d; }
+        body.freddy { --rc: #c49a6c; }
 
         #view {
             position: fixed;
@@ -35,6 +42,32 @@
         }
 
         .light-on #view { filter: brightness(1.35) saturate(1.15); }
+
+        /* ---- caminata en primera persona ---- */
+        #view.walk { animation: fpwalk 0.95s ease-in-out; }
+
+        #view.walk.fast { animation-duration: 0.48s; }
+
+        /* ---- Foxy corriendo por el pasillo ---- */
+        #view.running { animation: runshake 0.09s infinite; }
+        @keyframes runshake {
+            0%, 100% { transform: translate(0, 0) scale(1.05); }
+            25% { transform: translate(-1vw, 0.8vh) scale(1.06); }
+            50% { transform: translate(0.8vw, -0.6vh) scale(1.05); }
+            75% { transform: translate(-0.6vw, -0.8vh) scale(1.06); }
+        }
+
+        @keyframes fpwalk {
+            0% { transform: scale(1.16) translate(0, 0); filter: brightness(0.55) blur(2px); }
+            12% { transform: scale(1.13) translate(1.4vw, 1.1vh); filter: brightness(0.62) blur(1.6px); }
+            25% { transform: scale(1.10) translate(-1.1vw, -0.7vh); filter: brightness(0.68) blur(1.4px); }
+            37% { transform: scale(1.08) translate(1.4vw, 1.1vh); filter: brightness(0.74) blur(1.1px); }
+            50% { transform: scale(1.06) translate(-1.1vw, -0.7vh); filter: brightness(0.8) blur(0.8px); }
+            62% { transform: scale(1.04) translate(1.2vw, 0.9vh); filter: brightness(0.86) blur(0.5px); }
+            75% { transform: scale(1.02) translate(-0.9vw, -0.5vh); filter: brightness(0.9) blur(0.2px); }
+            87% { transform: scale(1.01) translate(0.9vw, 0.7vh); filter: brightness(0.92); }
+            100% { transform: scale(1) translate(0, 0); filter: brightness(0.92); }
+        }
 
         .vignette {
             position: fixed;
@@ -61,15 +94,18 @@
 
         .watched {
             position: fixed;
-            top: 3.4vh;
+            top: 9vh;
             left: 50%;
             transform: translate(-50%, 0);
             z-index: 6;
             color: #ff4d4d;
-            font-size: 1.5vw;
+            font-size: 1.7vw;
             font-weight: bold;
-            letter-spacing: 0.25vw;
-            text-shadow: 0 0 1vw rgba(255, 40, 40, 0.8);
+            letter-spacing: 0.3vw;
+            text-shadow: 0 0 1.2vw rgba(255, 40, 40, 0.9);
+            background: rgba(20, 0, 0, 0.55);
+            border: 0.14vw solid #ff4d4d;
+            padding: 0.8vh 2vw;
             display: none;
             animation: blink 0.7s infinite;
         }
@@ -78,35 +114,145 @@
 
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
 
+        /* ================= HUD ================= */
         #hud {
             position: fixed;
             top: 1.6vh;
-            left: 2vw;
-            right: 2vw;
+            left: 1.6vw;
+            right: 1.6vw;
             display: flex;
             justify-content: space-between;
+            align-items: flex-start;
+            gap: 1vw;
             z-index: 6;
-            font-size: 1.25vw;
-            text-shadow: 0 0 0.6vw black;
         }
 
-        #hud .item { background: rgba(0, 0, 0, 0.55); padding: 0.5vh 1vw; }
-        #hud .pw-low { color: #ff5d5d; }
+        .hbox {
+            background: rgba(0, 0, 0, 0.62);
+            border: 0.13vw solid #333;
+            padding: 0.7vh 1vw;
+            display: flex;
+            align-items: center;
+            gap: 0.8vw;
+        }
 
+        /* rol */
+        #hb-role img { width: 3vw; height: 3vw; min-width: 30px; min-height: 30px; object-fit: contain; filter: drop-shadow(0 0 0.5vw var(--rc)); }
+        #hb-role .rname { font-size: 1.15vw; font-weight: bold; color: var(--rc); letter-spacing: 0.18vw; display: block; }
+        #hb-role .rplayer { font-size: 0.8vw; color: #8a8a8a; display: block; }
+
+        /* hora */
+        #hb-hour { flex-direction: column; gap: 0.15vh; padding: 0.7vh 2.4vw; border-color: #4a4a4a; }
+        #h-hour { font-size: 1.75vw; font-weight: bold; letter-spacing: 0.25vw; color: #e8e8e8; text-shadow: 0 0 0.8vw rgba(255, 255, 255, 0.25); }
+        #h-night { font-size: 0.85vw; letter-spacing: 0.4vw; color: #9a9a9a; }
+
+        /* derecha */
+        .hud-right { display: flex; flex-direction: column; gap: 0.7vh; align-items: flex-end; }
+
+        #hb-power { flex-direction: column; align-items: flex-end; gap: 0.4vh; min-width: 11vw; }
+        #hb-power .plabel { font-size: 0.75vw; letter-spacing: 0.3vw; color: #8a8a8a; }
+        #hb-power .prow2 { display: flex; align-items: center; gap: 0.6vw; width: 100%; }
+        .pbar { flex: 1; height: 0.9vh; background: #1d1d1d; border: 0.1vw solid #444; position: relative; overflow: hidden; }
+        .pbar div { position: absolute; inset: 0; right: auto; width: 100%; background: #7ee07e; transition: width 0.4s; }
+        #h-power { font-size: 1.1vw; font-weight: bold; color: #7ee07e; min-width: 3.4vw; text-align: right; }
+        #hb-power.pw-low #h-power { color: #ff5d5d; }
+        #hb-power.pw-low .pbar div { background: #ff5d5d; }
+
+        #hb-doors { font-size: 0.95vw; letter-spacing: 0.08vw; gap: 0.5vw; }
+        .dstat { color: #7ee07e; }
+        .dstat.closed { color: #ff5d5d; font-weight: bold; }
+        .dsep { color: #555; }
+
+        /* ================= NOMBRE DE SALA ================= */
         #roomname {
             position: fixed;
-            top: 8.2vh;
+            top: 8.6vh;
             left: 50%;
             transform: translate(-50%, 0);
             z-index: 6;
-            font-size: 1.6vw;
+            font-size: 1.45vw;
             letter-spacing: 0.35vw;
-            color: #d8d8d8;
+            color: #e2e2e2;
             text-shadow: 0 0 1vw black;
-            background: rgba(0, 0, 0, 0.45);
-            padding: 0.4vh 1.4vw;
+            background: rgba(0, 0, 0, 0.5);
+            border-left: 0.35vw solid var(--rc);
+            padding: 0.5vh 1.6vw;
         }
 
+        /* ================= MINIMAPA ================= */
+        #mapwrap {
+            position: fixed;
+            left: 1.6vw;
+            bottom: 3vh;
+            z-index: 6;
+            width: 16vw;
+        }
+
+        #minimap {
+            position: relative;
+            width: 16vw;
+            height: 21vw;
+            max-height: 38vh;
+            background: rgba(0, 0, 0, 0.62);
+            border: 0.14vw solid #333;
+        }
+
+        .mroom {
+            position: absolute;
+            border: 0.1vw solid #3c3c3c;
+            background: #101010;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.62vw;
+            color: #767676;
+            letter-spacing: 0.1vw;
+            overflow: visible;
+        }
+
+        .mroom.here {
+            border-color: var(--rc);
+            box-shadow: 0 0 0.7vw var(--rc), inset 0 0 0.6vw rgba(255, 255, 255, 0.12);
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .mroom.office { border-color: #5a5a5a; color: #9a9a9a; }
+
+        .mroom .doorbar {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 0.35vw;
+            background: #7ee07e;
+        }
+
+        .mroom .doorbar.l { left: -0.35vw; }
+        .mroom .doorbar.r { right: -0.35vw; }
+        .mroom .doorbar.closed { background: #ff5d5d; box-shadow: 0 0 0.5vw rgba(255, 60, 60, 0.7); }
+
+        .mpip {
+            position: absolute;
+            width: 1.5vw;
+            height: 1.5vw;
+            transform: translate(-50%, -50%);
+            z-index: 2;
+        }
+
+        .mpip img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            filter: drop-shadow(0 0 0.3vw #000) brightness(0.85);
+        }
+
+        .mpip.self img { filter: drop-shadow(0 0 0.5vw var(--rc)) brightness(1.1); }
+        .mpip.running img { animation: piprun 0.25s infinite; }
+        @keyframes piprun { 0%, 100% { transform: translateX(-30%); } 50% { transform: translateX(30%); } }
+
+        #maptitle { font-size: 0.65vw; color: #6a6a6a; letter-spacing: 0.3vw; margin-top: 0.5vh; text-align: center; }
+
+        /* ================= NAVEGACIÓN ================= */
         #nav {
             position: fixed;
             bottom: 3.2vh;
@@ -114,34 +260,48 @@
             transform: translate(-50%, 0);
             z-index: 6;
             display: flex;
-            gap: 1.2vw;
+            gap: 1vw;
             flex-wrap: wrap;
             justify-content: center;
-            max-width: 78vw;
+            max-width: 56vw;
         }
 
         .navbtn {
             font-family: monospace;
-            font-size: 1.45vw;
+            font-size: 1.2vw;
             font-weight: bold;
-            color: #cfcfcf;
-            background: rgba(0, 0, 0, 0.72);
-            border: 0.16vw solid #555;
-            padding: 1.2vh 1.8vw;
+            color: #d5d5d5;
+            background: rgba(0, 0, 0, 0.78);
+            border: 0.15vw solid #565656;
+            border-left: 0.4vw solid var(--rc);
+            padding: 1.3vh 1.5vw;
             cursor: pointer;
-            letter-spacing: 0.12vw;
-            transition: border-color 0.1s, color 0.1s;
+            letter-spacing: 0.1vw;
+            transition: border-color 0.1s, color 0.1s, background 0.1s;
+            display: flex;
+            align-items: center;
+            gap: 0.8vw;
         }
 
-        .navbtn:hover { border-color: #fff; color: #fff; }
-        .navbtn.attack { color: #ff5d5d; border-color: #7a2b2b; }
-        .navbtn.attack:hover { border-color: #ff5d5d; text-shadow: 0 0 0.8vw rgba(255, 60, 60, 0.6); }
-        .navbtn:disabled { opacity: 0.35; cursor: default; }
+        .navbtn .dir {
+            font-size: 1.5vw;
+            color: var(--rc);
+            min-width: 1.6vw;
+            text-align: center;
+            text-shadow: 0 0 0.6vw var(--rc);
+        }
 
+        .navbtn:hover { border-color: #fff; color: #fff; background: rgba(20, 20, 20, 0.85); }
+        .navbtn:disabled { opacity: 0.32; cursor: default; }
+        .navbtn.attack { color: #ff5d5d; border-left-color: #ff5d5d; border-color: #7a2b2b; }
+        .navbtn.attack .dir { color: #ff5d5d; text-shadow: 0 0 0.7vw rgba(255, 60, 60, 0.8); }
+        .navbtn.attack:hover { border-color: #ff5d5d; text-shadow: 0 0 0.8vw rgba(255, 60, 60, 0.6); }
+
+        /* ================= HABILIDADES ================= */
         #abilities {
             position: fixed;
             bottom: 3.2vh;
-            right: 2vw;
+            right: 1.6vw;
             z-index: 6;
             display: flex;
             gap: 1vw;
@@ -149,21 +309,33 @@
 
         .ab {
             font-family: monospace;
-            font-size: 1.15vw;
+            position: relative;
+            overflow: hidden;
             color: #ffd34d;
-            background: rgba(0, 0, 0, 0.72);
+            background: rgba(0, 0, 0, 0.78);
             border: 0.16vw solid #6b5a1e;
             padding: 1vh 1.3vw;
             cursor: pointer;
             letter-spacing: 0.1vw;
-            min-width: 9vw;
+            min-width: 10.5vw;
             text-align: center;
         }
 
         .ab:hover { border-color: #ffd34d; }
-        .ab:disabled { opacity: 0.3; border-color: #444; cursor: default; }
-        .ab .cd { display: block; font-size: 0.9vw; color: #888; }
+        .ab:disabled { opacity: 0.4; border-color: #444; cursor: default; }
+        .ab .line1 { display: block; font-size: 1.1vw; font-weight: bold; }
+        .ab .cd { display: block; font-size: 0.85vw; color: #9a9a9a; margin-top: 0.3vh; }
+        .ab .cdfill {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 0%;
+            background: rgba(255, 211, 77, 0.22);
+            pointer-events: none;
+        }
 
+        /* ================= PANTALLAS ================= */
         #screen {
             position: fixed;
             inset: 0;
@@ -178,43 +350,32 @@
         }
 
         #screen h1 { font-size: 3.2vw; margin: 0; letter-spacing: 0.3vw; }
-        #screen .sub { font-size: 1.4vw; color: #9a9a9a; max-width: 60vw; line-height: 1.8; }
+        #screen .sub { font-size: 1.3vw; color: #9a9a9a; max-width: 62vw; line-height: 1.8; }
         #screen .big { font-size: 6vw; }
         #screen .win { color: #ffd34d; text-shadow: 0 0 2vw rgba(255, 211, 77, 0.5); }
         #screen .dead { color: #ff5d5d; text-shadow: 0 0 2vw rgba(255, 40, 40, 0.6); }
-
-        .roletag {
-            position: fixed;
-            top: 1.6vh;
-            left: 50%;
-            transform: translate(-50%, 0);
-            z-index: 6;
-            font-size: 1.1vw;
-            color: #ffd34d;
-            letter-spacing: 0.3vw;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 0.4vh 1.2vw;
-        }
+        #screen .roleicon { height: 14vh; object-fit: contain; filter: drop-shadow(0 0 1vw var(--rc)); }
 
         .toast {
             position: fixed;
-            bottom: 12vh;
+            bottom: 15vh;
             left: 50%;
             transform: translate(-50%, 0);
             z-index: 9;
-            font-size: 1.3vw;
+            font-size: 1.25vw;
             color: #fff;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.82);
             padding: 1vh 2vw;
-            border-left: 0.4vw solid #ffd34d;
+            border-left: 0.4vw solid var(--rc);
             opacity: 0;
             transition: opacity 0.2s;
-            max-width: 60vw;
+            max-width: 58vw;
         }
 
         .toast.on { opacity: 1; }
 
         .fade { animation: fadein 0.35s; }
+
         @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
@@ -223,19 +384,56 @@
     <div id="view"></div>
     <div class="vignette"></div>
     <div class="glitch" id="glitch"></div>
-    <div class="watched" id="watched">⚠ TE ESTÁN VIENDO ⚠</div>
-    <div class="roletag" id="roletag"></div>
+    <div class="watched" id="watched">⚠ TE ESTÁN VIENDO POR LA CÁMARA ⚠</div>
+
     <div id="hud">
-        <span class="item" id="h-hour">--:--</span>
-        <span class="item" id="h-power">ENERGÍA: --%</span>
-        <span class="item" id="h-doors">PUERTAS: I -- / D --</span>
+        <div class="hbox" id="hb-role">
+            <img id="role-icon" src="assets/roles/foxy.png" alt="">
+            <div>
+                <span class="rname" id="role-name">—</span>
+                <span class="rplayer" id="role-player">—</span>
+            </div>
+        </div>
+        <div class="hbox" id="hb-hour">
+            <span id="h-hour">--</span>
+            <span id="h-night">NOCHE -</span>
+        </div>
+        <div class="hud-right">
+            <div class="hbox" id="hb-power">
+                <span class="plabel">ENERGÍA DEL EDIFICIO</span>
+                <div class="prow2">
+                    <div class="pbar"><div id="pfill"></div></div>
+                    <span id="h-power">--%</span>
+                </div>
+            </div>
+            <div class="hbox" id="hb-doors">
+                <span class="dstat" id="d-l">◀ ABIERTA</span>
+                <span class="dsep">|</span>
+                <span class="dstat" id="d-r">ABIERTA ▶</span>
+            </div>
+        </div>
     </div>
+
     <div id="roomname">—</div>
-    <div id="nav"></div>
-    <div id="abilities">
-        <button class="ab" id="ab-jump">[J] JUMPSCARE<span class="cd" id="cd-jump">listo</span></button>
-        <button class="ab" id="ab-spec">[Q] <span id="spec-name">HABILIDAD</span><span class="cd" id="cd-spec">listo</span></button>
+
+    <div id="mapwrap">
+        <div id="minimap"></div>
+        <div id="maptitle">MAPA · TU POSICIÓN EN COLOR</div>
     </div>
+
+    <div id="nav"></div>
+
+    <div id="abilities">
+        <button class="ab" id="ab-jump">
+            <div class="cdfill" id="fill-jump"></div>
+            <span class="line1">[J] JUMPSCARE</span><span class="cd" id="cd-jump">listo</span>
+        </button>
+        <button class="ab" id="ab-spec">
+            <div class="cdfill" id="fill-spec"></div>
+            <span class="line1">[Q] <span id="spec-name">HABILIDAD</span></span><span class="cd" id="cd-spec">listo</span>
+        </button>
+    </div>
+
     <div class="toast" id="toast"></div>
     <div id="screen"></div>
 
