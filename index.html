@@ -11,33 +11,47 @@
 
 <!-- ==================== PANTALLAS ==================== -->
 
-<!-- MENÚ -->
+<!-- MENÚ (estilo pantalla de título original) -->
 <section class="screen active" id="s-menu">
-  <div class="menu-noise"></div>
-  <div class="menu-face-box"><img src="resources/img/menu_face.png" alt="" draggable="false"></div>
+  <div class="menu-bg"></div>
+  <img class="menu-face" src="resources/img/menu_face.png" alt="">
+  <img class="menu-itsme" src="resources/img/itsme.png" alt="">
   <div class="menu-box">
-    <h1 class="game-title">FIVE NIGHTS<br>AT FREDDY'S</h1>
+    <img class="menu-title" src="resources/img/title.png" alt="Five Nights at Freddy's">
     <div class="game-sub">MULTIJUGADOR</div>
-    <div class="menu-form">
-      <label>TU NOMBRE</label>
+    <div class="menu-field">
+      <label for="inp-name">TU NOMBRE</label>
       <input id="inp-name" maxlength="12" placeholder="Jugador" autocomplete="off">
-      <label>CÓDIGO DE SALA (para unirte)</label>
+    </div>
+    <button class="mi" id="btn-create">Nueva partida<span class="mi-sub">crea la sala — serás el GUARDIA</span></button>
+    <button class="mi" id="btn-join">Unirse a partida<span class="mi-sub">con el código de sala de un amigo</span></button>
+    <div class="menu-field">
+      <label for="inp-code">CÓDIGO DE SALA</label>
       <input id="inp-code" maxlength="5" placeholder="ABC12" autocomplete="off" class="code-inp"
              style="text-transform:uppercase">
-      <button class="mbtn create" id="btn-create">CREAR SALA — SERÁS EL GUARDIA</button>
-      <button class="mbtn join" id="btn-join">UNIRSE A UNA SALA</button>
     </div>
     <div class="menu-note">
-      El anfitrión es el <b>guardia</b> (oficina clásica: gira con el ratón, botones en la pared).<br>
-      El resto controla animatrónicos: avanzan <b>puerta a puerta</b> hasta la oficina.<br>
-      Solo juegan los animatrónicos con jugador — nada de relleno.
+      El anfitrión crea la sala y comparte el <b>código</b> (2-5 jugadores).<br>
+      El anfitrión es el <b>Guardia</b>; el resto controla a <b>Freddy, Bonnie, Chica o Foxy</b>,
+      avanzando <b>puerta a puerta</b> (sin mapa) hasta la oficina. ¡En la puerta no se puede acampar!
     </div>
   </div>
+  <div class="menu-ver">MULTIJUGADOR P2P · v1.0</div>
+  <div class="menu-static">
+    <img src="resources/img/static1.png" alt="">
+    <img src="resources/img/static2.png" alt="">
+    <img src="resources/img/static3.png" alt="">
+  </div>
+  <div class="vignette-layer"></div>
 </section>
 
 <!-- LOBBY -->
 <section class="screen" id="s-lobby">
-  <div class="menu-noise"></div>
+  <div class="noise-layer">
+    <img src="resources/img/static1.png" alt="">
+    <img src="resources/img/static2.png" alt="">
+    <img src="resources/img/static3.png" alt="">
+  </div>
   <div class="lobby-wrap">
     <div class="lobby-left">
       <h2 id="lobby-title">SALA</h2>
@@ -61,13 +75,14 @@
   </div>
 </section>
 
-<!-- GUARDIA -->
+<!-- GUARDIA (oficina en 3 paneles — 1ª versión) -->
 <section class="screen" id="s-guard">
   <div id="office-view"></div>
-  <div id="powerout-fx"><div class="po-face"><img src="resources/img/jsq_freddy_00.png" alt=""></div></div>
+  <div id="powerout-fx"><div class="po-freddy"><img src="resources/img/jsq_freddy_00.png" alt=""></div></div>
+  <div id="cam-help"> ESPACIO cámaras · A/D puertas · Z/X luces (mantener)</div>
 </section>
 
-<!-- ANIMATRÓNICO -->
+<!-- ANIMATRÓNICO (vista inmersiva por puertas) -->
 <section class="screen" id="s-anim">
   <div id="anim-head"></div>
   <div id="anim-status"></div>
@@ -76,7 +91,11 @@
 
 <!-- FIN -->
 <section class="screen" id="s-end">
-  <div class="menu-noise"></div>
+  <div class="noise-layer">
+    <img src="resources/img/static1.png" alt="">
+    <img src="resources/img/static2.png" alt="">
+    <img src="resources/img/static3.png" alt="">
+  </div>
   <div class="end-wrap">
     <img id="end-img" alt="">
     <h2 id="end-title">—</h2>

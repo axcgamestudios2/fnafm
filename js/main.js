@@ -53,14 +53,16 @@ const App = {
     document.addEventListener("pointerdown", kick, { once: true });
     document.addEventListener("keydown", kick, { once: true });
 
-    // (el guardia se controla 100% con ratón, como el FNAF original)
+    // teclas del guardia
+    document.addEventListener("keydown", (e) => this.onKey(e, true));
+    document.addEventListener("keyup", (e) => this.onKey(e, false));
 
     // routing de red
     Net.on("msg", (m) => this.onNetMsg(m));
     Net.on("join", (j) => {
       if (this.role === "guard") { // host
         Game.addPlayer(j.pid, j.name);
-        FX.toast(j.name + " se unió a la sala.", 2400);
+        FX.toast(esc(j.name) + " se unió a la sala.", 2400);
         this.broadcastLobby();
       }
     });
@@ -69,7 +71,7 @@ const App = {
       const p = Game.players[pid];
       if (!p) return;
       p.connected = false;
-      FX.toast(p.name + " se desconectó.", 2400, "bad");
+      FX.toast(esc(p.name) + " se desconectó.", 2400, "bad");
       // retirar su personaje de la partida
       if (Game.st && Game.st.anims && p.char) delete Game.st.anims[p.char];
       const anyAnim = Object.values(Game.players).some(q => q.connected && +q.pid !== 1);
@@ -241,7 +243,6 @@ const App = {
 
     const showScreen = () => {
       if (this.role === "guard") { Guard.forceMonitorDown(); Guard.exit(); }
-      if (this.role === "anim") Anim.exit();
       document.getElementById("powerout-fx").classList.remove("active");
       UI.show("s-end");
       const title = document.getElementById("end-title");
@@ -292,7 +293,6 @@ const App = {
     this.snap = null;
     this.gameOverMsg = false;
     if (this.role === "guard") Guard.exit();
-    if (this.role === "anim") Anim.exit();
     Net.broadcast({ t: "relobby" });
     UI.show("s-lobby");
     Lobby.show();
@@ -300,6 +300,21 @@ const App = {
     this.broadcastLobby();
   },
 
+  /* ==================== TEclas del guardia ==================== */
+  onKey(e, down) {
+    if (this.role !== "guard" || this.gameOverMsg) return;
+    const k = e.key.toLowerCase();
+    if (k === " " || e.code === "Space") { e.preventDefault(); if (down) Guard.toggleMonitor(); return; }
+    if (down) {
+      if (k === "a") Guard.toggleDoor("L");
+      if (k === "d") Guard.toggleDoor("R");
+      if (k === "z") Guard.lightOn("L");
+      if (k === "x") Guard.lightOn("R");
+    } else {
+      if (k === "z") Guard.lightOff("L");
+      if (k === "x") Guard.lightOff("R");
+    }
+  },
 };
 
 /* ==================== UI ==================== */
