@@ -1,8 +1,10 @@
 // ============================================================
 // FNAF 1 MP — Lobby: crear / unirse / roles ALEATORIOS
-// - El creador de la partida es SIEMPRE el GUARDIA (obligatorio).
-// - Los que se unen reciben un animatrónico ALEATORIO
-//   (FOXY, BONNIE, CHICA o FREDDY) asignado automáticamente.
+// - El GUARDIA se sortea ALEATORIAMENTE al pulsar EMPEZAR entre
+//   TODOS los jugadores — anfitrión incluido (puede tocarle a
+//   cualquiera; el anfitrión no es guardia por obligación).
+// - Los demás reciben un animatrónico ALEATORIO (FOXY, BONNIE,
+//   CHICA o FREDDY) re-sorteado también al empezar.
 // - Sin selector de personaje.
 // - Roles sin jugador quedan controlados por la IA original.
 // - Creación robusta: feedback inmediato, timeout y reintentos
@@ -17,6 +19,7 @@
         { id: 'chica', name: 'CHICA', img: 'assets/roles/chica.png', color: '#ffd54d' },
         { id: 'freddy', name: 'FREDDY', img: 'assets/roles/freddy.png', color: '#c49a6c' }
     ];
+    const HOST_INFO = { name: 'ANFITRIÓN', color: '#9a9a9a' };
     const ANIM_IDS = ['foxy', 'bonnie', 'chica', 'freddy'];
     const ABILITIES = {
         guard: 'Sobrevive la noche con puertas, luces y cámaras (juego ORIGINAL).',
@@ -80,34 +83,35 @@
         const cont = $('plist');
         cont.innerHTML = '';
         players.forEach(p => {
-            const r = roleInfo(p.role);
+            const isHost = (p.role === 'host');
+            const r = isHost ? HOST_INFO : roleInfo(p.role);
             const div = document.createElement('div');
             div.className = 'prow' + (p.name === myName && p.role === myRole ? ' me' : '');
             div.innerHTML =
-                '<img class="pic" src="' + r.img + '">' +
+                '<img class="pic" src="' + (isHost ? 'assets/roles/guard.png' : r.img) + '">' +
                 '<span class="pname" style="color:' + r.color + ';">' + p.name + '</span>' +
-                '<span class="ptag">' + r.name + '</span>';
+                '<span class="ptag">' + r.name + (isHost ? ' · ¿guardia? se sortea al EMPEZAR' : '') + '</span>';
             cont.appendChild(div);
         });
         // marcador de "esperando" si hay huecos
-        const animCount = players.filter(p => p.role !== 'guard').length;
+        const animCount = players.filter(p => p.role !== 'host' && p.role !== 'guard').length;
         $('room-status').textContent = mode === 'host'
             ? (animCount === 0
-                ? 'Esperando animatrónicos... (también puedes empezar solo: los roles vacíos serán IA)'
-                : animCount + '/4 animatrónicos conectados. Pulsa EMPEZAR cuando quieras.')
-            : 'Esperando a que el guardia empiece la noche...';
+                ? 'Esperando jugadores... (también puedes empezar solo: los roles vacíos serán IA)'
+                : animCount + '/4 animatrónicos. El GUARDIA se sortea al pulsar EMPEZAR.')
+            : 'Esperando a que el anfitrión empiece la noche (guardia aleatorio)...';
     }
 
     function showMyRole() {
         const box = $('myrole');
-        if (!myRole) { box.classList.add('hidden'); return; }
+        if (!myRole || myRole === 'host') { box.classList.add('hidden'); return; }
         const r = roleInfo(myRole);
         box.classList.remove('hidden');
         box.innerHTML =
-            '<div class="mrlabel">' + (mode === 'host' ? 'TU ROL (ANFITRIÓN)' : 'TU ROL (ALEATORIO)') + '</div>' +
+            '<div class="mrlabel">TU ROL PROVISIONAL (ALEATORIO)</div>' +
             '<img class="mrpic" src="' + r.img + '">' +
             '<div class="mrname" style="color:' + r.color + '; border-color:' + r.color + ';">' + r.name + '</div>' +
-            '<div class="mrdesc">' + ABILITIES[myRole] + '</div>';
+            '<div class="mrdesc">Se re-sortea al EMPEZAR junto al GUARDIA. ' + ABILITIES[myRole] + '</div>';
     }
 
     function broadcast(obj) {
@@ -132,26 +136,30 @@
         showMyRole();
     }
 
-    function goGame() {
+    function goGame(m) {
         if (started) return;
         started = true;
-        if (mode === 'host') {
-            window.location.href = '../1/index.html?mp=' + code + '&name=' + encodeURIComponent(myName);
+        // El rol lo decide el SORTEO del EMPEZAR: puede ser guardia o
+        // animatrónico — para CUALQUIER jugador, anfitrión incluido.
+        const role = (m && m.role) || myRole;
+        const name = encodeURIComponent(myName);
+        if (role === 'guard') {
+            window.location.href = '../1/index.html?mp=' + code + '&name=' + name;
         } else {
-            window.location.href = 'anim.html?mp=' + code + '&role=' + myRole + '&name=' + encodeURIComponent(myName);
+            window.location.href = 'anim.html?mp=' + code + '&role=' + role + '&name=' + name;
         }
     }
 
-    // ---------- HOST (guardia obligatorio) ----------
+    // ---------- HOST (crea la sala; el guardia se SORTEA al empezar) ----------
     function hostStart() {
         if (creating) return;
         netReady((ok) => {
             if (!ok) { $('home-status').innerHTML = netFailMsg(); return; }
             creating = true;
             mode = 'host';
-            myName = askName('Guardia');
-            myRole = 'guard'; // el anfitrión es SIEMPRE el guardia
-            players = [{ name: myName, role: 'guard' }];
+            myName = askName('Jugador');
+            myRole = 'host';    // anfitrión de la SALA — su rol de juego se sortea al EMPEZAR
+            players = [{ name: myName, role: 'host' }];
             lockHome(true);
             createRoom(1);
         });
@@ -245,9 +253,32 @@
     }
 
     function hostPlayers() {
-        const list = [{ name: myName, role: 'guard' }];
+        const list = [{ name: myName, role: 'host' }];
         conns.forEach(c => list.push({ name: c.name, role: c.role }));
         return list;
+    }
+
+    // ---------- EMPEZAR: SORTEO ALEATORIO DEL GUARDIA (v2) ----------
+    // "Si no hay ningún guardia y se empieza, se le cambia a cualquiera
+    //  aleatoriamente — al host también le puede tocar, pero aleatorio."
+    function drawRolesAndStart() {
+        // todos los jugadores (anfitrión + clientes) en una bolsa
+        const everyone = [{ name: myName, conn: null }]
+            .concat(conns.map(c => ({ name: c.name, conn: c.conn })));
+        const bag = shuffle(everyone.slice());
+        const guardP = bag[0];                       // guardia = primer sacado
+        const pool = shuffle(ANIM_IDS.slice());       // resto: animatrónicos al azar
+        const roleOf = new Map();
+        bag.forEach(pp => roleOf.set(pp, pp === guardP ? 'guard' : pool.shift()));
+
+        // repartir por red (a cada cliente SU rol) y navegar cada quien
+        conns.forEach(c => {
+            const pp = everyone.find(e => e.conn === c.conn);
+            const r = roleOf.get(pp) || 'foxy';
+            try { c.conn.send(JSON.stringify({ t: 'start', role: r })); } catch (e) { }
+        });
+        myRole = roleOf.get(everyone[0]);             // el rol del propio anfitrión
+        setTimeout(() => goGame({ role: myRole }), 250);
     }
 
     // ---------- CLIENTE (rol aleatorio) ----------
@@ -295,7 +326,7 @@
                             players = m.players || players;
                             renderPlayers();
                         }
-                        if (m.t === 'start') goGame();
+                        if (m.t === 'start') goGame(m);   // m.role = guardia O animatrónico (sorteo)
                     });
                     conn.on('close', () => {
                         if (started) return;
@@ -324,14 +355,9 @@
 
     $('b-start').addEventListener('click', () => {
         if (mode !== 'host') return;
-        if (!players.some(p => p.role === 'guard')) { // a fuerza hay guardia
-            alert('Error: falta el guardia.');
-            return;
-        }
         $('b-start').disabled = true;
-        $('room-status').textContent = '¡EMPEZANDO LA NOCHE!';
-        broadcast({ t: 'start' });
-        setTimeout(goGame, 300);
+        $('room-status').textContent = '¡SORTEANDO EL GUARDIA Y EMPEZANDO LA NOCHE!';
+        drawRolesAndStart();
     });
     $('b-leave').addEventListener('click', () => {
         if (mode === 'client') sendToHost({ t: 'leave' });

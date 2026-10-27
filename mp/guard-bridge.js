@@ -13,6 +13,23 @@
 //      de modo que TODA la lógica (cámaras, kill, retiradas) es la
 //      ORIGINAL del juego — no se reprograma nada.
 //   5. Superpone jumpscares inofensivos y efectos de habilidades
+//
+// v6 (render nativo):
+//   - ELIMINADO todo el sistema de marcadores (applyMarkers/YOU_SPOT):
+//     se descubrió que los marcadores del juego (bonnie/chica/freddy
+//     bear) son objetos LÓGICOS INVISIBLES — teletransportarlos no
+//     renderiza nada y solo peleaba con los eventos internos del juego
+//     (bug "sale en dos lados / duplicado").
+//   - Las cámaras del juego usan imágenes variantes con los personajes
+//     PINTADOS DENTRO (escenario sin Bonnie, cocina con Chica...). El
+//     juego las selecciona en las transiciones nativas de cámara
+//     ("set viewing to"). El puente ahora pulsa ese contador tras cada
+//     movimiento para que la ocupación se re-renderice EN VIVO.
+//   - Mapa de contadores de FREDDY corregido (sus valores 0-2 son todos
+//     ESCENARIO; su ruta va desplazada +1 respecto a Chica). Su marco de
+//     puerta es el valor 8.
+//   - Cuenta atrás de movimiento (balanceo) y límite de tiempo en la
+//     puerta (anti-camping).
 // ============================================================
 
 (function () {
@@ -22,7 +39,7 @@
     const ROOM = params.get('mp');
     if (!ROOM) return; // un jugador: no hacer nada
 
-    const BRIDGE_VERSION = 'v5-kill-transicion';
+    const BRIDGE_VERSION = 'v6-render-nativo';
     try { console.log('[MP] guard-bridge ' + BRIDGE_VERSION); } catch (e) { }
 
     const MY_NAME = params.get('name') || 'Guardia';
@@ -45,76 +62,58 @@
     const AI_COUNTER = {
         bonnie: 'bonie AI', chica: 'chica AI', freddy: 'freddy AI', foxy: 'foxy AI'
     };
+    // ⚠️ Mapa REAL de contadores (ingeniería inversa v6):
+    //   Bonnie/Chica: 0=escenario, 2=comedor, 3=(bastidores|baños),
+    //     4=(almacén|cocina), 5=(pasillo O|pasillo E), 6=(esquina O|E),
+    //     7=marco de la puerta, 8=dentro de la oficina (kill).
+    //   Freddy: ¡desplazado +1! 0/1/2=ESCENARIO (verificado: el juego lo
+    //     deja en el escenario con esos valores), 3=comedor, 4=baños,
+    //     5=cocina, 6=pasillo E, 7=esquina E, 8=marco puerta derecha.
     const ROOM_INDEX = {
         bonnie: { '1A': 0, '1B': 2, '5': 3, '2A': 4, '3': 5, '2B': 6 },
         chica: { '1A': 0, '1B': 2, '7': 3, '6': 4, '4A': 5, '4B': 6 },
-        freddy: { '1A': 0, '1B': 2, '7': 3, '6': 4, '4A': 5, '4B': 6 }
+        freddy: { '1A': 0, '1B': 3, '7': 4, '6': 5, '4A': 6, '4B': 7 }
     };
     const INDEX_ROOM = {
-        bonnie: { 0: '1A', 2: '1B', 3: '5', 4: '2A', 5: '3', 6: '2B', 7: 'doorL' },
-        chica: { 0: '1A', 2: '1B', 3: '7', 4: '6', 5: '4A', 6: '4B', 7: 'doorR' },
-        freddy: { 0: '1A', 2: '1B', 3: '7', 4: '6', 5: '4A', 6: '4B', 7: 'doorR' }
+        bonnie: { 0: '1A', 2: '1B', 3: '5', 4: '2A', 5: '3', 6: '2B', 7: 'doorL', 8: 'doorIn' },
+        chica: { 0: '1A', 2: '1B', 3: '7', 4: '6', 5: '4A', 6: '4B', 7: 'doorR', 8: 'doorIn' },
+        freddy: { 0: '1A', 1: '1A', 2: '1A', 3: '1B', 4: '7', 5: '6', 6: '4A', 7: '4B', 8: 'doorR' }
+    };
+    // valor de contador que significa "en el marco de la puerta"
+    const DOOR_FRAME = { bonnie: 7, chica: 7, freddy: 8 };
+    // valores por rol para la vista de puerta con luz (proximidad)
+    const DOOR_VIEW = {
+        bonnie: { frame: 7, corner: 6, halls: [4, 5] },
+        chica: { frame: 7, corner: 6, halls: [5] },
+        freddy: { frame: 8, corner: 7, halls: [6] }
     };
     const DOOR_IMG = { L: { open: 103, closed: 102 }, R: { open: 119, closed: 118 } };
 
-    // Puntos de render por vista ("you" spots, verificados empíricamente):
-    // teletransportar el marcador de un animatrónico aquí lo RENDERIZA en la
-    // imagen de esa cámara (comprobado con diff de píxeles anti-ruido).
-    const YOU_SPOT = {
-        '1A': [983, 353], '1B': [1283, 409], '1C': [1251, 487], '5': [1159, 436],
-        '3': [899, 585], '2A': [1207, 603], '2B': [1166, 643], '4A': [1229, 604],
-        '4B': [1189, 644], '6': [1243, 568], '7': [1214, 437]
-    };
-    const PARK_SPOT = [2000, 2000]; // invisible en todas las vistas
-    const MARKER = { bonnie: 'bonnie', chica: 'chica', freddy: 'freddy bear' };
-    // Botones de sala: puntos de espera del juego original (tablet abajo)
-    const BUTTON_SPOT = {
-        '1A': [983, 353], '1B': [963, 409], '1C': [931, 487], '5': [857, 436],
-        '3': [899, 585], '2A': [983, 603], '2B': [983, 643], '4A': [1089, 604],
-        '4B': [1089, 644], '6': [1186, 568], '7': [1195, 437]
-    };
-    // salas de esquina: desde ahí se ataca (el juego camina al marcador a la
-    // puerta y ejecuta la muerte original)
-    const CORNER_ROOMS = ['2B', '4B'];
+    // Balanceo: cuenta atrás entre movimientos (ms). Con SPRINT se halva.
+    const MOVE_CD = 4000;
+    // Máximo de tiempo permitido plantado en el marco de la puerta (ms)
+    // — "no deben poder estar mucho tiempo en la puerta, es trampa".
+    const DOOR_MAX_MS = 10000;
 
     // ---------------------------------------------------------
-    // Animación de CAMINATA de los marcadores en las cámaras:
-    // en vez de teletransportarse, el animatrónico entra caminando
-    // hasta su punto de render con un balanceo de pasos (bob).
+    // REFRESCO NATIVO DE CÁMARAS (v6):
+    // el juego elige la IMAGEN VARIANTE de cada cámara (con/sin cada
+    // animatrónico pintado) en las transiciones de "set viewing to".
+    // Al moverse un jugador, si el guardia está mirando una sala
+    // afectada, re-pulsamos ese contador para que la ocupación se
+    // re-renderice EN VIVO con el motor ORIGINAL del juego.
     // ---------------------------------------------------------
-    const markerAnim = {};   // role -> {fromX, fromY, tx, ty, start, dur}
-    let lastViewing = null;
-    let viewChangedAt = 0;
-    const WALK_MS = 950;     // debe coincidir con la caminata del cliente animatrónico
-
-    function stepMarkers(now) {
-        // seguimiento de cambios de cámara (para decidir teletransporte vs caminata)
+    let lastPulseAt = 0;
+    function pulseGuardCam(rooms) {
         const viewing = rs('viewing');
-        if (viewing !== lastViewing) { lastViewing = viewing; viewChangedAt = now; }
-        Object.keys(markerAnim).forEach(role => {
-            const a = markerAnim[role];
-            const o = find(MARKER[role]);
-            if (!o || !o.roc) { delete markerAnim[role]; return; }
-            const k = Math.min(1, (now - a.start) / a.dur);
-            let x = a.fromX + (a.tx - a.fromX) * k;
-            let y = a.fromY + (a.ty - a.fromY) * k;
-            if (k < 1) {
-                // balanceo de pasos: 2.5 pasos por segundo
-                y += Math.sin(now / 62) * 4.5;
-            }
-            o.hoX = x;
-            o.hoY = y;
-            o.roc.rcChanged = true;
-            if (k >= 1) delete markerAnim[role];
-        });
-    }
-
-    function startMarkerLoop() {
-        function tick(t) {
-            try { stepMarkers(t); } catch (e) { }
-            requestAnimationFrame(tick);
-        }
-        requestAnimationFrame(tick);
+        if (!viewing) return;                    // tablet abajo: nada que refrescar
+        const viewedRoom = VIEWING_CAM[viewing];
+        if (!viewedRoom) return;
+        if (rooms && rooms.indexOf(viewedRoom) === -1) return;
+        const now = performance.now();
+        if (now - lastPulseAt < 500) return;     // no spamear la transición
+        lastPulseAt = now;
+        setRS('set viewing to', viewing);
     }
 
     // ---------------------------------------------------------
@@ -266,56 +265,6 @@
         }, 500);
     })();
 
-    // Coloca los marcadores de los animatrónicos con jugador según la vista
-    // actual del guardia:
-    //  - sala siendo vista → punto de render (se ve en la cámara, verificado)
-    //  - esquina (2B/4B) → su botón: el ataque del juego ORIGINAL necesita
-    //    arrancar desde ahí para caminar a la puerta y ejecutar el kill
-    //  - resto → lejos (invisible)
-    // Si el animatrónico LLEGA a la sala que el guardia está viendo, entra
-    // CAMINANDO desde un lateral (animación) en vez de teletransportarse.
-    // Durante un ataque (counter>=7) y para Foxy, manda la lógica del juego.
-    function applyMarkers() {
-        const now = performance.now();
-        const viewing = rs('viewing');
-        const viewedRoom = VIEWING_CAM[viewing] || null;
-        const sameViewForAwhile = (now - viewChangedAt) > 400;
-        Object.keys(state.players).forEach(role => {
-            if (role === 'foxy') return; // Foxy: fox progress + lógica propia
-            const p = state.players[role];
-            if (!p.room) return;
-            const idx = rs(ACTIVITY_COUNTER[role]);
-            if (idx !== null && idx >= 7) { delete markerAnim[role]; return; } // en la puerta/ataque: el juego controla
-            if (markerAnim[role]) return; // está caminando: no interrumpir
-            const o = find(MARKER[role]);
-            if (!o || !o.roc) return;
-            let spot;
-            if (viewedRoom === p.room && YOU_SPOT[p.room]) {
-                spot = YOU_SPOT[p.room];
-                // ¿acaba de entrar a esta sala mientras el guardia la mira? → caminar
-                const justArrived = p.roomChangedAt && (now - p.roomChangedAt < 1500) && p.walkPlayed !== p.room;
-                if (sameViewForAwhile && justArrived) {
-                    p.walkPlayed = p.room;
-                    markerAnim[role] = {
-                        fromX: spot[0] - 250, fromY: spot[1] - 46,
-                        tx: spot[0], ty: spot[1],
-                        start: now, dur: WALK_MS
-                    };
-                    log(role + ' entra caminando a ' + p.room);
-                    return;
-                }
-                p.walkPlayed = p.room;
-            } else if (CORNER_ROOMS.includes(p.room)) {
-                spot = BUTTON_SPOT[p.room];
-            } else {
-                spot = PARK_SPOT;
-            }
-            o.hoX = spot[0];
-            o.hoY = spot[1];
-            o.roc.rcChanged = true;
-        });
-    }
-
     function readState() {
         const a = app();
         if (!a || !a.run) return null;
@@ -351,12 +300,12 @@
     // VISTA DE PUERTA/PASILLO CON LA LUZ (como el juego original):
     // si el guardia MANTIENE la luz con la puerta abierta, ve al
     // animatrónico según lo cerca que esté:
-    //   pasillo (índice 4/5) → silueta lejana y apagada al fondo
-    //   esquina (índice 6)   → asomado en el vano de la puerta
-    //   marco (índice 7/8)   → cara en primer plano
+    //   pasillo            → silueta lejana y apagada al fondo
+    //   esquina            → asomado en el vano de la puerta
+    //   marco / dentro     → cara en primer plano
     //   Foxy corriendo (progreso 4) también aparece en el pasillo O.
-    // Antes solo se veía el caso "índice 7": por eso "no salía el
-    // animatrónico en tu perspectiva aunque estuviera ahí".
+    // (v6: los índices son por ROL — Freddy usa el mapa desplazado+1,
+    //  su marco es 8; ver el bug "en la puerta sale en dos lados".)
     // ---------------------------------------------------------
     function updateDoorViews() {
         const a = app();
@@ -384,10 +333,11 @@
                 }
                 const expected = (r === 'bonnie') ? 'L' : 'R';
                 if (expected !== side) return;
+                const spec = DOOR_VIEW[r];
                 const idx = rs(ACTIVITY_COUNTER[r]);
-                if (idx === 7 || idx === 8) cands.push({ role: r, prox: 3 });
-                else if (idx === 6) cands.push({ role: r, prox: 2 });
-                else if ((side === 'L' && idx === 4) || (side === 'R' && idx === 5)) cands.push({ role: r, prox: 1 });
+                if (idx === spec.frame || idx === spec.frame + 1) cands.push({ role: r, prox: 3 });
+                else if (idx === spec.corner) cands.push({ role: r, prox: 2 });
+                else if (spec.halls.indexOf(idx) !== -1) cands.push({ role: r, prox: 1 });
             });
             if (!cands.length) { if (d) d.remove(); return; }
             cands.sort((x, y) => y.prox - x.prox);
@@ -462,27 +412,45 @@
             }
         })();
     }
+    // ---------------------------------------------------------
+    // KILL NATIVO DE FREDDY (v6): su cadena de muerte en FNAF1 es el
+    // APAGÓN — al quedarse sin energía, la oficina queda a oscuras,
+    // suena la marcha del Toreador y Freddy acabó con el guardia.
+    // Verificado en vivo: escribir power=0 dispara la secuencia
+    // ORIGINAL del juego (frame 4 = jumpscare de Freddy, death by=freddy).
+    // ---------------------------------------------------------
+    function triggerPowerOut() {
+        setRS('power left', 0);
+        setRS('power left 2', 0);
+        setRS('power down', 1);
+        log('APAGÓN — la secuencia ORIGINAL de Freddy está en marcha');
+    }
+
     function watchDoorAssaults() {
         const now = Date.now();
         Object.keys(state.players).forEach(role => {
             const p = state.players[role];
             if (!p || !p.doorAssault) return;
             const idx = rs(ACTIVITY_COUNTER[role]);
-            if (idx === 8) {
+            const frame = DOOR_FRAME[role];          // 7 (bonnie/chica) | 8 (freddy)
+            const office = frame + 1;                // "dentro de la oficina" del juego
+            const atDoor = (idx === frame);
+            if (role !== 'freddy' && idx === office) {
                 // el juego lo metió dentro por sí solo: kill original en curso
                 if (!p.officeKillAt) {
                     p.officeKillAt = now;
                     host && host.broadcast({ t: 'anim', role, room: 'doorIn' });
                     log(role.toUpperCase() + ' ENTRÓ a la oficina — kill original en camino');
                 }
-            } else if (idx != null && idx < 7) {
+            } else if (idx != null && idx < frame) {
                 // el juego/retirada lo sacó de la puerta
                 p.doorAssault = false;
                 p.burstUntil = 0;
                 p.burstDoneAt = 0;
                 p.officeKillAt = 0;
                 p.killForced = false;
-            } else if (idx === 7 && p.burstUntil) {
+                p.doorSince = 0;
+            } else if (atDoor && p.burstUntil) {
                 // irrupción en curso del jugador: resolver al terminar
                 if (now < p.burstUntil) return;
                 p.burstUntil = 0;
@@ -499,9 +467,10 @@
                     // forzar UN ciclo de monitor — el kill ORIGINAL del juego
                     // se dispara al bajar el monitor con él en el marco.
                     p.burstDoneAt = now;
+                    p.doorSince = 0;
                     log(role.toUpperCase() + ' irrumpió con la puerta abierta — kill en camino');
                 }
-            } else if (idx === 7 && p.burstDoneAt && !p.killForced) {
+            } else if (atDoor && p.burstDoneAt && !p.killForced) {
                 // margen de gracia para que el guardia cierre la puerta
                 if (now - p.burstDoneAt < 1500) return;
                 const stillClosed = (role === 'bonnie')
@@ -514,8 +483,27 @@
                 }
                 p.killForced = true;
                 p.officeKillAt = now;
-                forceMonitorCycle();
-                log('ciclo de monitor forzado — el juego ejecuta el kill original');
+                if (role === 'freddy') {
+                    // Freddy NO tiene kill por contadores: su muerte canónica
+                    // es el APAGÓN (secuencia original del juego, ~15-25s de
+                    // oscuridad + Toreador + jumpscare de Freddy).
+                    triggerPowerOut();
+                    log('Freddy cortó la luz — apagón letal en camino');
+                } else {
+                    forceMonitorCycle();
+                    log('ciclo de monitor forzado — el juego ejecuta el kill original');
+                }
+            } else if (atDoor && !p.burstUntil && !p.burstDoneAt) {
+                // LÍMITE DE TIEMPO EN LA PUERTA (anti-camping): si se queda
+                // plantado en el marco sin irrumpir, el host lo retira a la
+                // esquina. "No deben poder estar mucho tiempo en la puerta".
+                if (!p.doorSince) {
+                    p.doorSince = now;
+                } else if (now - p.doorSince > DOOR_MAX_MS) {
+                    p.doorSince = 0;
+                    retractFromDoor(role, 'tiempo agotado en la puerta', 'corner');
+                    log(role.toUpperCase() + ' retirado de la puerta por tiempo (anti-camping)');
+                }
             }
         });
     }
@@ -540,7 +528,7 @@
                 role, name: entry.name, conn: entry.conn,
                 room: (role === 'foxy') ? '1C' : '1A',
                 lastMove: 0, attackAt: 0, cooldown: {},
-                roomChangedAt: 0, walkPlayed: null
+                roomChangedAt: 0, doorSince: 0
             };
             try {
                 entry.conn.send(JSON.stringify({
@@ -579,7 +567,6 @@
     }
 
     function startLoops() {
-        startMarkerLoop();   // caminata suave de marcadores (60 fps)
         setInterval(() => {
             const a = app();
             if (!a) return;
@@ -598,7 +585,6 @@
             host.broadcast({ t: 'state', s });
             updateBadge(s);
             if (state.phase === 'night') {
-                applyMarkers();
                 watchDoorAssaults();
                 updateDoorViews();
             } else {
@@ -614,14 +600,15 @@
                 const p = state.players[role];
                 if (role === 'foxy') return;
                 const idx = rs(ACTIVITY_COUNTER[role]);
-                if (idx == null || idx === 7) return; // en la puerta: lo maneja la retracción
+                if (idx == null || idx === DOOR_FRAME[role]) return; // en la puerta: lo maneja la retracción
                 const r = roomFromIndex(role, idx);
                 if (r && p.room !== r) {
+                    const old = p.room;
                     p.room = r;
-                    p.roomChangedAt = now;   // el juego lo retiró: puede volver a verse caminando
-                    p.walkPlayed = null;
+                    p.roomChangedAt = now;
                     try { p.conn.send(JSON.stringify({ t: 'moveOk', room: r })); } catch (e) { }
                     host.broadcast({ t: 'anim', role, room: r });
+                    pulseGuardCam([r, old]);   // re-render nativo de las salas afectadas
                 }
             });
         }, 1000);
@@ -637,7 +624,7 @@
                 if (role === 'foxy') return;
                 const p = state.players[role];
                 const idx = rs(ACTIVITY_COUNTER[role]);
-                if (idx !== 7) { p.doorClosedSince = 0; p.retractAt = 0; return; }
+                if (idx !== DOOR_FRAME[role]) { p.doorClosedSince = 0; p.retractAt = 0; return; }
                 const doorClosed = (role === 'bonnie')
                     ? (img('left door') === DOOR_IMG.L.closed)
                     : (img('right door') === DOOR_IMG.R.closed);
@@ -681,7 +668,6 @@
                 const p = state.players[role];
                 p.room = (role === 'foxy') ? '1C' : roomFromIndex(role, rs(ACTIVITY_COUNTER[role]));
                 p.roomChangedAt = 0;
-                p.walkPlayed = null;
                 p.attackAt = 0;
                 p.doorClosedSince = 0;
                 p.retractAt = 0;
@@ -690,7 +676,7 @@
                 p.burstDoneAt = 0;
                 p.officeKillAt = 0;
                 p.killForced = false;
-                delete markerAnim[role];
+                p.doorSince = 0;
             });
             host && host.broadcast({ t: 'phase', p: 'night', night: state.night });
             log('Noche ' + state.night + ' iniciada');
@@ -726,7 +712,7 @@
     function detectKiller() {
         const pos = state.lastPositions || {};
         if (pos.foxy === 4 || pos.foxy === 5) return 'foxy';   // 5 = sprint activo
-        for (const r of ['bonnie', 'chica', 'freddy']) if (pos[r] != null && pos[r] >= 7) return r;
+        for (const r of ['bonnie', 'chica', 'freddy']) if (pos[r] != null && pos[r] >= DOOR_FRAME[r]) return r;
         // apagón (energía a 0): fue Freddy
         if (state.lastState && (state.lastState.powerPct === 0 || state.lastState.power === 0)) return 'freddy';
         return 'desconocido';
@@ -766,12 +752,12 @@
         const p = state.players[role];
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
-        // El host es MÁS permisivo que el cliente (600ms/400ms en cliente):
-        // así el propio botón del cliente regula el ritmo y nunca hay
-        // rechazos que hagan "rebobinar" la caminata optimista.
-        const cd = p.sprintUntil && now < p.sprintUntil ? 300 : 450;
+        // BALANCEO (v6): cuenta atrás real entre movimientos — antes eran
+        // 450ms y podían cruzar la pizzería en segundos ("avanzan rapidísimo").
+        // El cliente muestra la cuenta atrás en los botones; con SPRINT se halva.
+        const cd = p.sprintUntil && now < p.sprintUntil ? MOVE_CD / 2 : MOVE_CD;
         if (now - p.lastMove < cd) {
-            try { entry.conn.send(JSON.stringify({ t: 'moveBad', why: 'demasiado-rapido' })); } catch (e) { }
+            try { entry.conn.send(JSON.stringify({ t: 'moveBad', why: 'demasiado-rapido', wait: Math.ceil((cd - (now - p.lastMove)) / 1000) })); } catch (e) { }
             return;
         }
 
@@ -789,10 +775,10 @@
             p.room = room;
             p.lastMove = now;
             p.roomChangedAt = performance.now();
-            p.walkPlayed = null;
-            applyMarkers();
             try { entry.conn.send(JSON.stringify({ t: 'moveOk', room })); } catch (e) { }
             host.broadcast({ t: 'anim', role, room, from: current });
+            // re-render NATIVO de la sala que el guardia esté mirando
+            pulseGuardCam([room, current]);
             log(role + ' → ' + room);
         }
     }
@@ -806,6 +792,8 @@
         }
         setRS('fox progress', cur + 1);
         p.lastMove = now;
+        // Foxy asomándose es visible en la CAM 1C: refrescar si el guardia la mira
+        pulseGuardCam(['1C']);
         try { entry.conn.send(JSON.stringify({ t: 'moveOk', room: '1C', progress: cur + 1 })); } catch (e) { }
     }
 
@@ -832,10 +820,40 @@
             return;
         }
 
-        const atFrame = rs(ACTIVITY_COUNTER[role]) === 7;
+        // ===== FREDDY: se cuela DESDE LA ESQUINA (sin marco de puerta) =====
+        // Canon FNAF1: Freddy no se asoma a la puerta — si la puerta derecha
+        // está ABIERTA, cruza y se mete en la oficina; su kill es el APAGÓN
+        // (secuencia original del juego). Si está cerrada, rebota al comedor.
+        if (role === 'freddy') {
+            if (now - (p.attackAt || 0) < 10000) {
+                try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'cooldown', wait: Math.ceil((10000 - (now - (p.attackAt || 0))) / 1000) })); } catch (e) { }
+                return;
+            }
+            if (roomOf(role) !== '4B') {
+                try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'lejos' })); } catch (e) { }
+                return;
+            }
+            const doorRClosed = (img('right door') === DOOR_IMG.R.closed);
+            if (doorRClosed) {
+                try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'puerta-cerrada' })); } catch (e) { }
+                log('FREDDY rebotó: puerta derecha cerrada');
+                return;
+            }
+            setRS(ACTIVITY_COUNTER[role], 8);   // "dentro de la oficina"
+            p.attackAt = now;
+            p.doorAssault = true;
+            p.burstUntil = now + BURST_MS;
+            p.doorSince = 0;
+            playSfx('knock.mp3', 0.3);
+            try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true, burst: BURST_MS })); } catch (e) { }
+            log('FREDDY se cuela en la oficina por la puerta derecha');
+            return;
+        }
+
+        const atFrame = rs(ACTIVITY_COUNTER[role]) === DOOR_FRAME[role];
 
         // ===== ATAQUE DESDE EL MARCO DE LA PUERTA (irrupción) =====
-        // El jugador ya se asomó (act=7) y decide irrumpir. El guardia
+        // El jugador ya se asomó (marco) y decide irrumpir. El guardia
         // tiene BURST_MS para cerrar la puerta. Sin cooldown: el
         // contrajuego del guardia es cerrar a tiempo.
         if (atFrame && m && m.door) {
@@ -875,11 +893,12 @@
             log(role + ' rebotó: puerta cerrada');
             return;
         }
-        setRS(ACTIVITY_COUNTER[role], 7);
+        setRS(ACTIVITY_COUNTER[role], DOOR_FRAME[role]);
         p.attackAt = now;
         p.roomChangedAt = 0;
         p.doorAssault = true;
         p.burstUntil = 0;
+        p.doorSince = 0;
         // pista sutil para el guardia: pasos/golpecito en el marco
         playSfx('knock.mp3', 0.3);
         try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true })); } catch (e) { }
@@ -899,7 +918,6 @@
         setRS(ACTIVITY_COUNTER[role], ROOM_INDEX[role][target]);
         p.room = target;
         p.roomChangedAt = performance.now();
-        p.walkPlayed = null;
         p.doorClosedSince = 0;
         p.retractAt = 0;
         p.doorAssault = false;
@@ -907,9 +925,11 @@
         p.burstDoneAt = 0;
         p.officeKillAt = 0;
         p.killForced = false;
+        p.doorSince = 0;
         try { p.conn.send(JSON.stringify({ t: 'doorOut', room: target, why: why || '' })); } catch (e) { }
         try { p.conn.send(JSON.stringify({ t: 'moveOk', room: target })); } catch (e) { }
         host.broadcast({ t: 'anim', role, room: target });
+        pulseGuardCam(null);   // re-render de la cámara que se esté mirando
         log(role + ' se retira de la puerta → ' + target + ' (' + why + ')');
     }
 
@@ -922,7 +942,7 @@
         // Retirada voluntaria de la puerta (sin cooldown): vuelve a la
         // ESQUINA, no al comedor — castigo suave, puede reintentar pronto.
         if (m.kind === 'doorRetreat') {
-            if (rs(ACTIVITY_COUNTER[role]) === 7) {
+            if (rs(ACTIVITY_COUNTER[role]) === DOOR_FRAME[role]) {
                 retractFromDoor(role, 'decisión del jugador', 'corner');
             } else {
                 // no estaba en el marco: liberar al cliente por si acaso
@@ -936,6 +956,7 @@
             if (now - (p.lastRetreat || 0) < 2000) return;
             p.lastRetreat = now;
             setRS('fox progress', 0);
+            pulseGuardCam(['1C']);
             try { entry.conn.send(JSON.stringify({ t: 'moveOk', room: '1C', progress: 0 })); } catch (e) { }
             return;
         }

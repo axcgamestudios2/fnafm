@@ -11,6 +11,14 @@
 //  - Botones nunca más se traban (reseteos por estado + timeouts)
 //  - Minimapa en vivo con todos los animatrónicos
 //  - HUD renovado por rol
+//
+// v3 (balanceo + freddy):
+//  - Mapa de FREDDY corregido (sus contadores 0-2 son ESCENARIO; su
+//    ruta va desplazada +1 — antes todas sus salas estaban mal).
+//  - CUENTA ATRÁS de movimiento entre salas (balanceo: antes podía
+//    cruzar la pizzería en segundos). Visible en los botones.
+//  - LÍMITE de tiempo en el marco de la puerta con cuenta atrás
+//    visible (anti-camping: el host te retira pasados 10s).
 // ============================================================
 
 (function () {
@@ -68,11 +76,15 @@
     };
     const CAM_VIEWING = { '1A': 1, '1B': 2, '1C': 99, '5': 5, '3': 33, '2A': 3, '2B': 22, '4A': 4, '4B': 42, '6': 6, '7': 7 };
     // índice de actividad -> sala (mapa inverso del juego)
+    // ⚠️ v3: FREDDY va desplazado +1: sus valores 0/1/2 son ESCENARIO,
+    // 3=comedor, 4=baños, 5=cocina, 6=pasillo E, 7=esquina E, 8=puerta.
     const IDX_ROOM = {
-        bonnie: { 0: '1A', 2: '1B', 3: '5', 4: '2A', 5: '3', 6: '2B' },
-        chica: { 0: '1A', 2: '1B', 3: '7', 4: '6', 5: '4A', 6: '4B' },
-        freddy: { 0: '1A', 2: '1B', 3: '7', 4: '6', 5: '4A', 6: '4B' }
+        bonnie: { 0: '1A', 2: '1B', 3: '5', 4: '2A', 5: '3', 6: '2B', 7: 'doorL' },
+        chica: { 0: '1A', 2: '1B', 3: '7', 4: '6', 5: '4A', 6: '4B', 7: 'doorR' },
+        freddy: { 0: '1A', 1: '1A', 2: '1A', 3: '1B', 4: '7', 5: '6', 6: '4A', 7: '4B', 8: 'doorR' }
     };
+    // valor de "estás en el marco de la puerta" por rol
+    const DOOR_ACT = { bonnie: 7, chica: 7, freddy: 8 };
 
     const SPEC_INFO = {
         foxy: { name: 'SPRINT', desc: 'Corres rápido entre escenarios (5s)' },
@@ -105,6 +117,10 @@
     const WALK_MS = 950;   // igual que la caminata que ve el guardia
     const DOOR_CD = 10000; // espera entre aproximaciones a la puerta
     const BURST_MS = 1200; // ventana de irrupción (igual que el host)
+    // BALANCEO: cuenta atrás entre movimientos (igual que el host).
+    const MOVE_CD = 4000;
+    // Máximo en el marco de la puerta antes de que el host te retire
+    const DOOR_MAX_MS = 10000;
     const cli = {
         room: (ROLE === 'foxy') ? '1C' : '1A',
         phase: 'connecting',
@@ -125,6 +141,7 @@
         pendingMove: null,
         sprintUntil: 0,
         runShown: false,       // vista de carrera de Foxy activa
+        doorSince: 0,         // cuándo llegaste al marco (para la cuenta atrás)
         cooldown: { jumpscare: 0, special: 0 },
         connected: false,
         lastMoveSent: 0
@@ -198,7 +215,7 @@
             let pos = null, running = false;
             if (role === ROLE) {
                 const act = s.positions ? s.positions[role] : null;
-                if (act != null && act >= 7) pos = DOOR_POS[role === 'bonnie' ? 'L' : 'R'];
+                if (act != null && act >= DOOR_ACT[role]) pos = DOOR_POS[role === 'bonnie' ? 'L' : 'R'];
                 else pos = centerOf(cli.room);
             } else if (role === 'foxy') {
                 const fp = s.positions ? s.positions.foxy : null;
@@ -206,7 +223,7 @@
                 else pos = centerOf('1C');
             } else {
                 const act = s.positions ? s.positions[role] : null;
-                if (act != null && act >= 7) pos = DOOR_POS[role === 'bonnie' ? 'L' : 'R'];
+                if (act != null && act >= DOOR_ACT[role]) pos = DOOR_POS[role === 'bonnie' ? 'L' : 'R'];
                 else pos = centerOf(IDX_ROOM[role][act]);
             }
             if (!pos) { pip.style.display = 'none'; return; }
@@ -277,6 +294,7 @@
         cli.doorSide = left ? 'L' : 'R';
         setRoomImage(left ? 'doorL' : 'doorR');
         document.body.classList.add('atdoor');
+        cli.doorSince = Date.now();   // cuenta atrás del límite de puerta
         $('roomname').textContent = left
             ? 'MARCO DE LA PUERTA IZQUIERDA'
             : 'MARCO DE LA PUERTA DERECHA';
@@ -285,6 +303,7 @@
     function leaveDoorView() {
         document.body.classList.remove('atdoor');
         view.classList.remove('bursting');
+        cli.doorSince = 0;
         updateDoorBanner(null, true);
     }
 
@@ -299,6 +318,12 @@
         const el = $('doorbanner');
         if (!el) return;
         if (hide || !cli.atDoor) { el.className = ''; el.style.display = 'none'; return; }
+        // cuenta atrás del límite de tiempo en la puerta (anti-camping)
+        let timeLeft = '';
+        if (!cli.enteredOffice && !cli.bursting && cli.doorSince) {
+            const left = Math.max(0, Math.ceil((DOOR_MAX_MS - (Date.now() - cli.doorSince)) / 1000));
+            timeLeft = '<small>⏱ Tiempo en la puerta: ' + left + 's — luego te retiran</small>';
+        }
         if (cli.enteredOffice) {
             el.className = 'in';
             el.innerHTML = '☠ ¡ESTÁS DENTRO DE LA OFICINA! ☠<small>El guardia está perdido — jumpscare original en camino</small>';
@@ -307,10 +332,10 @@
             el.innerHTML = '¡IRRUPIENDO EN LA OFICINA!<small>El guardia aún puede cerrar la puerta...</small>';
         } else if (myDoorClosed(s)) {
             el.className = 'closed';
-            el.innerHTML = 'PUERTA CERRADA<small>No puedes entrar — retírate y espera tu momento</small>';
+            el.innerHTML = 'PUERTA CERRADA<small>No puedes entrar — retírate y espera tu momento</small>' + timeLeft;
         } else {
             el.className = 'open';
-            el.innerHTML = 'PUERTA ABIERTA<small>El guardia está expuesto — ¡PUEDES ATACAR!</small>';
+            el.innerHTML = 'PUERTA ABIERTA<small>El guardia está expuesto — ¡PUEDES ATACAR!</small>' + timeLeft;
         }
         el.style.display = 'block';
     }
@@ -337,6 +362,7 @@
         b.innerHTML = '<span class="dir">' + arrow + '</span><span class="txt">' + label +
             (sub ? '<small>' + sub + '</small>' : '') + '</span>';
         b.disabled = !!disabled;
+        b.__sub = sub || '';
         if (onClick) b.addEventListener('click', onClick);
         nav.appendChild(b);
         return b;
@@ -360,17 +386,29 @@
             dest !== '1C' && legal.indexOf(dest) !== -1);
         opts.forEach(dest => {
             const arrow = (NAV_ARROW[here] && NAV_ARROW[here][dest]) || '•';
-            mkNavBtn('', arrow, ROOM_NAME[dest] || dest, () => tryMove(dest), navDisabled());
+            const b = mkNavBtn('', arrow, ROOM_NAME[dest] || dest, () => tryMove(dest), navDisabled());
+            b.__moveBtn = true;   // la cuenta atrás de movimiento se pinta aquí
         });
         // aproximación a la puerta desde la esquina del pasillo
         const atCorner = (here === '2B' && ROLE === 'bonnie') || (here === '4B' && (ROLE === 'chica' || ROLE === 'freddy'));
         if (atCorner) {
             const cd = doorCdLeft();
-            const side = (ROLE === 'bonnie') ? 'puerta izquierda' : 'puerta derecha';
-            const b = mkNavBtn('attack', '◑', 'ASOMARSE A LA PUERTA', doAttack,
-                cd > 0 || cli.attackBusy || navDisabled(),
-                cd > 0 ? ('enfriando ' + Math.ceil(cd / 1000) + 's') : side);
-            b.id = 'btn-door';
+            if (ROLE === 'freddy') {
+                // CANON FNAF1: Freddy NO se asoma al marco — se cuela directo
+                // si la puerta derecha está abierta; su kill es el APAGÓN.
+                const doorShut = cli.state && cli.state.doorR;
+                const b = mkNavBtn('attack kill', '◉', '¡COLARSE EN LA OFICINA!', freddySlipAttack,
+                    cd > 0 || cli.attackBusy || navDisabled() || !!doorShut,
+                    cd > 0 ? ('enfriando ' + Math.ceil(cd / 1000) + 's')
+                        : (doorShut ? 'la puerta derecha está CERRADA' : 'canon: Freddy corta la luz'));
+                b.id = 'btn-door';
+            } else {
+                const side = (ROLE === 'bonnie') ? 'puerta izquierda' : 'puerta derecha';
+                const b = mkNavBtn('attack', '◑', 'ASOMARSE A LA PUERTA', doAttack,
+                    cd > 0 || cli.attackBusy || navDisabled(),
+                    cd > 0 ? ('enfriando ' + Math.ceil(cd / 1000) + 's') : side);
+                b.id = 'btn-door';
+            }
         }
     }
 
@@ -378,6 +416,13 @@
     function renderDoorNav() {
         if (cli.enteredOffice) {
             mkNavBtn('wait', '☠', '¡DENTRO DE LA OFICINA!', null, true, 'El guardia ya no puede hacer nada...');
+            return;
+        }
+        if (ROLE === 'freddy') {
+            // Freddy se cuela en UN paso: dentro del flujo de colada no hay
+            // segunda decisión (el apagón del host ejecuta el kill original).
+            mkNavBtn('burst', '»', '¡COLÁNDOSE EN LA OFICINA!', null, true,
+                cli.bursting ? 'el guardia aún puede cerrar la puerta...' : 'esperando...');
             return;
         }
         if (cli.bursting) {
@@ -405,13 +450,14 @@
 
     function renderFoxyNav() {
         // Foxy: asomarse (máximo 3) y correr
-        mkNavBtn('', '◑', 'ASOMARSE FUERA DE LA CORTINA', () => {
+        const peekBtn = mkNavBtn('', '◑', 'ASOMARSE FUERA DE LA CORTINA', () => {
             if (navDisabled()) return;
-            if (Date.now() - cli.lastMoveSent < 600) return; // ritmo (igual que el host)
+            if (Date.now() - cli.lastMoveSent < (Date.now() < cli.sprintUntil ? MOVE_CD / 2 : MOVE_CD)) return;
             cli.lastMoveSent = Date.now();
             net && net.send({ t: 'move', to: 'peek' });
         }, cli.foxPeek >= 3 || cli.attackBusy || cli.phase !== 'night',
             cli.foxPeek >= 3 ? 'ya estás fuera del todo' : 'el guardia te ve en la CAM 1C');
+        peekBtn.__moveBtn = true;
         mkNavBtn('attack', '!', '¡CORRER A LA OFICINA!', doAttack, cli.foxPeek < 1 || cli.attackBusy || cli.phase !== 'night',
             cli.foxPeek < 1 ? 'asómate primero' : 'por el pasillo oeste');
         if (cli.foxPeek > 0 && !cli.attackBusy) {
@@ -431,11 +477,13 @@
         if (cli.walking) { toast('Ya te estás moviendo...'); return; }
         if (cli.attackBusy || cli.atDoor) { toast('Estás en la puerta de la oficina: usa sus botones.'); return; }
         const now = Date.now();
-        // El cliente regula MÁS lento que el host (450ms): así el host
-        // nunca rechaza el movimiento y la caminata optimista nunca
-        // se rebobina (bug: "aparece 1 segundo y se regresa").
-        const pace = now < cli.sprintUntil ? 400 : 600;
-        if (now - cli.lastMoveSent < pace) { toast('Demasiado rápido...'); return; }
+        // BALANCEO (v3): cuenta atrás entre pasos — el cliente regula con el
+        // MISMO ritmo que el host para que nunca haya rechazos/rebobinados.
+        const pace = now < cli.sprintUntil ? MOVE_CD / 2 : MOVE_CD;
+        if (now - cli.lastMoveSent < pace) {
+            toast('Cuenta atrás: espera ' + Math.ceil((pace - (now - cli.lastMoveSent)) / 1000) + 's para moverte...');
+            return;
+        }
         cli.lastMoveSent = now;
         cli.pendingMove = dest;
         net.send({ t: 'move', to: dest });
@@ -459,6 +507,33 @@
                 cli.attackBusy = false;
                 renderNav();
                 toast('No lograste llegar al marco...');
+            }
+        }, 6100);
+    }
+
+    // ---- FREDDY: colarse en la oficina desde la esquina (canon) ----
+    // Freddy no usa el marco: si la puerta derecha está abierta, entra y
+    // el host ejecuta el APAGÓN original (oscuridad + Toreador + kill).
+    function freddySlipAttack() {
+        if (!net || !cli.connected || cli.phase !== 'night' || cli.attackBusy || cli.walking || cli.atDoor) return;
+        if (cli.state && cli.state.doorR) {
+            toast('¡La puerta derecha está CERRADA! No puedes colarte.');
+            return;
+        }
+        net.send({ t: 'attack', door: true });
+        cli.attackBusy = true;
+        cli.attackAt = Date.now();
+        cli.lastDoorAt = Date.now();
+        renderNav();
+        toast('Cruzas la esquina en silencio y te cuelas en la oscuridad...');
+        glitch.classList.add('on');
+        setTimeout(() => glitch.classList.remove('on'), 600);
+        // seguridad: si el host no resuelve en 6s, liberar el botón
+        setTimeout(() => {
+            if (cli.attackBusy && !cli.atDoor && cli.phase === 'night' && Date.now() - cli.attackAt >= 5800) {
+                cli.attackBusy = false;
+                renderNav();
+                toast('No lograste colarte...');
             }
         }, 6100);
     }
@@ -525,6 +600,11 @@
     }
 
 
+    function moveCdLeft() {
+        const pace = Date.now() < cli.sprintUntil ? MOVE_CD / 2 : MOVE_CD;
+        return Math.max(0, pace - (Date.now() - cli.lastMoveSent));
+    }
+
     function updateAbilityUI() {
         const now = Date.now();
         const cdJ = Math.max(0, 15000 - (now - cli.cooldown.jumpscare));
@@ -536,6 +616,36 @@
         $('ab-jump').disabled = cdJ > 0 || cli.phase !== 'night';
         $('ab-spec').disabled = cdS > 0 || cli.phase !== 'night';
         $('spec-name').textContent = SPEC_INFO[ROLE].name;
+
+        // CUENTA ATRÁS DE MOVIMIENTO sobre los botones de sala (balanceo):
+        // deshabilitados y con el tiempo restante hasta el próximo paso.
+        const navBtns = nav.querySelectorAll('button');
+        const mcd = moveCdLeft();
+        navBtns.forEach(b => {
+            if (!b.__moveBtn) return;
+            let small = b.querySelector('small');
+            if (mcd > 0 && cli.phase === 'night') {
+                b.disabled = true;
+                b.__wasCooling = true;
+                if (!small) {
+                    small = document.createElement('small');
+                    b.querySelector('.txt').appendChild(small);
+                }
+                small.textContent = '⏱ en ' + Math.ceil(mcd / 1000) + 's';
+                b.classList.add('cooling');
+            } else {
+                b.classList.remove('cooling');
+                if (small && small.textContent.indexOf('⏱') === 0) {
+                    small.textContent = b.__sub || '';
+                    if (!b.__sub) small.remove();
+                }
+                if (b.__wasCooling) {
+                    b.__wasCooling = false;
+                    renderNav();      // fin de la cuenta atrás: restaurar botones
+                }
+            }
+        });
+
         // refresco en vivo del cooldown del botón ASOMARSE (sin re-render)
         const b = $('btn-door');
         if (b) {
@@ -602,7 +712,7 @@
             if (pos == null) return;
             let room = null;
             if (r === 'foxy') room = (pos >= 4) ? '2A' : '1C';
-            else if (pos < 7) room = IDX_ROOM[r][pos] || null;
+            else if (pos < DOOR_ACT[r]) room = IDX_ROOM[r][pos] || null;
             if (room === cli.room) here.push(r);
         });
         if (here.length) {
@@ -622,6 +732,7 @@
         cli.bursting = false;
         cli.runShown = false;
         cli.walking = false;
+        cli.doorSince = 0;
         view.classList.remove('walk', 'fast', 'running', 'bursting');
         leaveDoorView();
     }
@@ -638,11 +749,16 @@
             const iWin = by === ROLE;
             resetDoorState();
             if (iWin) playLocal('scream.mp3', 0.85);
+            const winMsg = ROLE === 'freddy'
+                ? 'Apagaste la oficina y el Toreador sonó en la oscuridad. El guardia nunca te vio llegar.'
+                : (ROLE === 'foxy'
+                    ? 'Corriste por el pasillo y nadie cerró la puerta a tiempo.'
+                    : 'Irrumpiste en la oficina y el guardia no pudo cerrarla a tiempo.');
             showScreen(
                 roleIconTag() +
                 '<h1 class="' + (iWin ? 'win' : 'dead') + '">' + (iWin ? '¡ATRAPASTE AL GUARDIA!' : 'FIN DE LA NOCHE') + '</h1>' +
                 '<div class="sub">' + (iWin
-                    ? 'Tu jumpscare original se ha cobrado otra víctima. ' + (ROLE === 'foxy' ? 'Corriste por el pasillo y nadie cerró la puerta a tiempo.' : 'Irrumpiste en la oficina y el guardia no pudo cerrarla a tiempo.')
+                    ? 'Tu jumpscare original se ha cobrado otra víctima. ' + winMsg
                     : 'El guardia fue atrapado por ' + by.toUpperCase() + '. Buen trabajo de equipo.') + '</div>' +
                 '<div class="sub">Esperando al guardia para la revancha...</div>');
         } else if (p === 'win') {
@@ -693,8 +809,9 @@
         }
         const act = s.positions[ROLE];
         const room = IDX_ROOM[ROLE][act];
-        if (act != null && act >= 7 && cli.phase === 'night') {
-            // estás en el marco de la puerta (7) o DENTRO de la oficina (8):
+        const doorVal = DOOR_ACT[ROLE];          // 7 (bonnie/chica) | 8 (freddy)
+        if (act != null && act >= doorVal && cli.phase === 'night') {
+            // estás en el marco de la puerta (marco) o DENTRO de la oficina:
             // el juego original controla todo lo que sigue
             if (!cli.atDoor) {
                 cli.atDoor = true;
@@ -705,7 +822,7 @@
                 playLocal('footstep.mp3', 0.5);
                 toast('Te asomas al marco de la puerta... vigila el estado de la puerta.');
             }
-            if (act >= 8 && !cli.enteredOffice) {
+            if (act >= doorVal + 1 && !cli.enteredOffice) {
                 cli.enteredOffice = true;
                 cli.bursting = false;
                 view.classList.remove('bursting');
@@ -716,7 +833,7 @@
             }
             // aviso: el guardia cerró la puerta mientras estás en el marco
             const myDoorClosed = (ROLE === 'bonnie') ? s.doorL : s.doorR;
-            if (act === 7 && myDoorClosed && !cli.enteredOffice && !cli.bursting &&
+            if (act === doorVal && myDoorClosed && !cli.enteredOffice && !cli.bursting &&
                 Date.now() - (cli._doorShutAt || 0) > 6000) {
                 cli._doorShutAt = Date.now();
                 toast('¡El guardia cerró la puerta! Retírate o espera a que la abra...');
@@ -837,6 +954,7 @@
         net.on('doorOut', (m) => {
             // el host confirmó la salida de la puerta (voluntaria o rebote)
             const wasBurst = cli.bursting;
+            const why = (m.why || '');
             cli.atDoor = false;
             cli.attackBusy = false;
             cli.enteredOffice = false;
@@ -847,7 +965,10 @@
                 setView(m.room);
             }
             renderNav();
-            if (wasBurst || (m.why || '').indexOf('irrupci') >= 0) {
+            if (why.indexOf('tiempo') >= 0) {
+                toast('⏱ ¡TIEMPO AGOTADO! No puedes acampar en la puerta: vuelves a ' + (ROOM_NAME[m.room] || 'la esquina') + '.');
+                playLocal('knock.mp3', 0.5);
+            } else if (wasBurst || why.indexOf('irrupci') >= 0) {
                 toast('¡La puerta se cerró justo a tiempo! Rebotas hacia el ' + (ROOM_NAME[m.room] || 'comedor') + '.');
                 playLocal('doorSlam.mp3', 0.7);
             } else {
@@ -870,12 +991,14 @@
             const why = m && m.why;
             if (cli.walking) {
                 cancelWalk(why === 'demasiado-rapido'
-                    ? 'Dejas un momento entre pasos...'
+                    ? 'Cuenta atrás de movimiento: ' + (m.wait || 1) + 's antes del próximo paso.'
                     : 'No puedes avanzar ahí desde tu posición actual.');
             } else {
                 toast(why === 'max-cortina'
                     ? 'Ya estás completamente fuera de la cortina'
-                    : 'No puedes avanzar ahí.');
+                    : (why === 'demasiado-rapido'
+                        ? 'Cuenta atrás de movimiento: ' + (m.wait || 1) + 's antes del próximo paso.'
+                        : 'No puedes avanzar ahí.'));
             }
         });
         net.on('atk', (m) => {
@@ -897,8 +1020,26 @@
                 leaveDoorView();
                 renderNav();
             } else if (m && m.ok === true && m.burst) {
-                // el host aceptó la irrupción: mantener el estado hasta resolución
+                // el host aceptó la irrupción/colada: mantener el estado hasta resolución
                 cli.bursting = true;
+                playLocal('sprint.mp3', 0.8);
+                view.classList.add('bursting');
+                // FREDDY (colada): tras la embestida ya está DENTRO — el
+                // apagón del host ejecuta el kill original.
+                setTimeout(() => {
+                    if (cli.bursting && cli.phase === 'night' && !cli.enteredOffice) {
+                        cli.bursting = false;
+                        cli.enteredOffice = true;
+                        view.classList.remove('bursting');
+                        renderNav();
+                        updateDoorBanner();
+                        if (ROLE === 'freddy') {
+                            toast('¡ESTÁS DENTRO! Cortas la luz... el Toreador suena en la oscuridad.');
+                        } else {
+                            toast('¡ENTRASTE A LA OFICINA! El guardia ya no puede hacer nada...');
+                        }
+                    }
+                }, BURST_MS + 250);
             }
         });
         net.on('ability', (m) => {
