@@ -39,7 +39,7 @@
     const ROOM = params.get('mp');
     if (!ROOM) return; // un jugador: no hacer nada
 
-    const BRIDGE_VERSION = 'v7-nativo-merge';
+    const BRIDGE_VERSION = 'v7.1-autoridad-jugador';
     try { console.log('[MP] guard-bridge ' + BRIDGE_VERSION); } catch (e) { }
 
     const MY_NAME = params.get('name') || 'Guardia';
@@ -114,6 +114,109 @@
         if (now - lastPulseAt < 500) return;     // no spamear la transición
         lastPulseAt = now;
         setRS('set viewing to', viewing);
+    }
+
+    // ---------------------------------------------------------
+    // PRESENCIA EN CÁMARAS NO-ESCENARIO (v7.1):
+    // el motor del juego demo SOLO re-renderiza las variantes del
+    // ESCENARIO (1A) — verificado en vivo: el comedor/bastidores/baños
+    // no responden al contador. Para que el guardia VEA el movimiento
+    // en el resto de cámaras (petición del usuario: "asegúrate de que
+    // el movimiento esté conectado a las cámaras"), el puente superpone
+    // FOTOS ORIGINALES del juego verificadas (comedor con Bonnie/Freddy,
+    // pasillo E con Chica) y, donde no existe foto de sala en el demo,
+    // el render original del animatrónico (primeros planos canon de
+    // esquinas/almacén/bastidores, asomado lateral en comedor/baños).
+    // El ESCENARIO se deja 100% al motor nativo (pulseGuardCam).
+    // ---------------------------------------------------------
+    // fotos ORIGINALES verificadas (VLM a resolución completa)
+    const ORIG_ROOM_PIC = {
+        '1B': { bonnie: 'dining_bonnie.png', freddy: 'dining_freddy.png' },
+        '4A': { chica: 'ehall_chica.png' }
+    };
+    // salas con CARA EN PRIMER PLANO (canon FNAF: esquinas/almacén/bastidores/pasillos)
+    const CLOSEUP_ROOMS = {
+        bonnie: ['2B', '3', '5', '2A'],
+        chica: ['4B', '4A'],
+        freddy: ['4B', '4A']
+    };
+    // comedor/baños: asomado GRANDE desde un lateral
+    const EMERGE_SPOTS = {
+        '1B': { bonnie: 'right', chica: 'left' },
+        '7': { chica: 'left', freddy: 'right' }
+    };
+    const CLIP_NO_MAP = 'polygon(0% 0%, 0% 100%, 57% 100%, 57% 50%, 100% 50%, 100% 0%)';
+
+    function rolesInRoomCam(room) {
+        const out = [];
+        ['bonnie', 'chica', 'freddy'].forEach(role => {
+            const idx = rs(ACTIVITY_COUNTER[role]);
+            if (idx == null || idx < 0 || idx >= DOOR_FRAME[role]) return;
+            const r = roomFromIndex(role, idx);
+            if (r === room) out.push(role);
+        });
+        return out;
+    }
+
+    function updateCamViews() {
+        const a = app();
+        if (!a || !a.canvas) return;
+        const id = 'mp-camview';
+        let d = document.getElementById(id);
+        const viewing = rs('viewing');
+        const active = state.phase === 'night' && a.currentFrame === 2 && viewing != null && viewing !== 0;
+        const viewedRoom = active ? (VIEWING_CAM[viewing] || null) : null;
+        // el escenario lo pinta el motor nativo; la cocina es solo-audio
+        if (!viewedRoom || viewedRoom === '1A' || viewedRoom === '6') {
+            if (d) d.remove();
+            return;
+        }
+        let html = '';
+        const present = rolesInRoomCam(viewedRoom);
+        const swap = ORIG_ROOM_PIC[viewedRoom];
+        if (viewedRoom === '1C') {
+            // Cueva del Pirata: Foxy asomando según su progreso de cortina
+            const fp = rs('fox progress');
+            if (fp >= 1 && fp <= 3) {
+                const w = [0, 26, 40, 54][fp];
+                html += '<div style="position:absolute;left:52%;top:30%;width:' + (w * 1.15) + '%;height:52%;">' +
+                    '<img src="' + MP_URL + 'assets/jumpscares/foxy.png" style="width:100%;height:100%;object-fit:cover;object-position:65% 30%;' +
+                    'filter:brightness(.75) saturate(.55) contrast(1.2);"></div>';
+            }
+        }
+        present.forEach(role => {
+            const closeup = (CLOSEUP_ROOMS[role] || []).indexOf(viewedRoom) !== -1;
+            const emerge = (!closeup && EMERGE_SPOTS[viewedRoom]) ? EMERGE_SPOTS[viewedRoom][role] : null;
+            if (swap && swap[role]) {
+                // FOTO ORIGINAL de esa sala con ese animatrónico (swap completo)
+                html += '<img src="' + MP_URL + 'assets/camoverlay/' + swap[role] + '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;clip-path:' + CLIP_NO_MAP + ';">';
+            } else if (closeup) {
+                html += '<img src="' + MP_URL + 'assets/jumpscares/' + role + '.png" style="position:absolute;left:0;top:0;width:78%;height:100%;object-fit:cover;' +
+                    'filter:brightness(.8) saturate(.65) contrast(1.2);clip-path:' + CLIP_NO_MAP + ';opacity:.97;">';
+            } else if (emerge) {
+                const pos = (emerge === 'left') ? 'left:-16%' : 'right:-16%';
+                const opos = (emerge === 'left') ? '65% 12%' : '35% 12%';
+                const maskAt = (emerge === 'left')
+                    ? '-webkit-mask-image:linear-gradient(90deg,transparent 4%,#000 26%,#000 72%,transparent 92%);mask-image:linear-gradient(90deg,transparent 4%,#000 26%,#000 72%,transparent 92%);'
+                    : '-webkit-mask-image:linear-gradient(270deg,transparent 4%,#000 26%,#000 72%,transparent 92%);mask-image:linear-gradient(270deg,transparent 4%,#000 26%,#000 72%,transparent 92%);';
+                html += '<img src="' + MP_URL + 'assets/jumpscares/' + role + '.png" style="position:absolute;' + pos + ';top:0;height:104%;width:68%;object-fit:cover;object-position:' + opos + ';' +
+                    'filter:brightness(.78) saturate(.6) contrast(1.22);opacity:.95;' + maskAt + '">';
+            } else {
+                html += '<img src="' + MP_URL + 'assets/jumpscares/' + role + '.png" style="position:absolute;left:18%;bottom:0;height:60%;' +
+                    'filter:brightness(.75) saturate(.6) contrast(1.2);opacity:.95;' +
+                    '-webkit-mask-image:radial-gradient(ellipse 58% 62% at 50% 40%, #000 68%, transparent 84%);' +
+                    'mask-image:radial-gradient(ellipse 58% 62% at 50% 40%, #000 68%, transparent 84%);">';
+            }
+        });
+        if (!html) { if (d) d.remove(); return; }
+        if (!d) {
+            d = document.createElement('div');
+            d.id = id;
+            d.style.cssText = 'position:fixed;inset:0;z-index:99996;pointer-events:none;overflow:hidden;';
+            document.body.appendChild(d);
+        }
+        const sig = viewedRoom + '|' + present.join(',') + '|' + rs('fox progress');
+        if (d.__sig !== sig) { d.__sig = sig; d.innerHTML = html; }
     }
 
     // ---------------------------------------------------------
@@ -502,6 +605,16 @@
                 p.doorSince = 0;
                 p.killDeadline = 0;
                 setHelperVisible(role, false);
+                // aceptar UNA VEZ la retirada del juego (guardia cerró la
+                // puerta y el juego original lo echó) y avisar al cliente
+                const back = roomFromIndex(role, idx);
+                if (back && p.room !== back) {
+                    p.room = back;
+                    p.roomChangedAt = performance.now();
+                    try { p.conn.send(JSON.stringify({ t: 'moveOk', room: back })); } catch (e) { }
+                    host.broadcast({ t: 'anim', role, room: back });
+                    pulseGuardCam([back]);
+                }
             } else if (atDoor && p.burstUntil) {
                 // irrupción en curso del jugador: resolver al terminar
                 if (now < p.burstUntil) return;
@@ -594,7 +707,7 @@
                 role, name: entry.name, conn: entry.conn,
                 room: (role === 'foxy') ? '1C' : '1A',
                 lastMove: 0, attackAt: 0, cooldown: {},
-                roomChangedAt: 0, doorSince: 0
+                roomChangedAt: 0, doorSince: 0, foxPeek: 0
             };
             try {
                 entry.conn.send(JSON.stringify({
@@ -652,33 +765,51 @@
             host.broadcast({ t: 'state', s });
             updateBadge(s);
             if (state.phase === 'night') {
+                updateCamViews();       // presencia en cámaras no-escenario
                 watchDoorAssaults();
                 updateDoorViews();
             } else {
+                updateCamViews();       // limpia overlays fuera de la noche
                 updateDoorViews();   // limpia overlays fuera de la noche
             }
         }, 100);
 
-        // sincronizar posiciones desde el juego (retiradas tras ataque bloqueado, etc.)
+        // -----------------------------------------------------
+        // AUTORIDAD DEL JUGADOR (300 ms):
+        // el juego demo mueve a los animatrónicos por GUION en cada cambio
+        // de hora — aunque su IA esté en 0 (verificado en vivo: Chica
+        // 0→1 a la 1AM con todos los AI=0). Sin esto, el guion teletransporta
+        // a los JUGADORES cada hora. Aquí el jugador manda: si el guion (o
+        // cualquier evento del juego) mueve el contador de un rol con
+        // jugador, se revierte a su sala real y se re-renderiza la cámara.
+        // Los roles SIN jugador conservan la IA/guion originales.
+        // -----------------------------------------------------
         setInterval(() => {
-            if (state.phase !== 'night') return;
-            const now = performance.now();
+            if (state.phase !== 'night' || !app() || app().currentFrame !== 2) return;
             Object.keys(state.players).forEach(role => {
                 const p = state.players[role];
-                if (role === 'foxy') return;
-                const idx = rs(ACTIVITY_COUNTER[role]);
-                if (idx == null || idx === DOOR_FRAME[role]) return; // en la puerta: lo maneja la retracción
-                const r = roomFromIndex(role, idx);
-                if (r && p.room !== r) {
-                    const old = p.room;
-                    p.room = r;
-                    p.roomChangedAt = now;
-                    try { p.conn.send(JSON.stringify({ t: 'moveOk', room: r })); } catch (e) { }
-                    host.broadcast({ t: 'anim', role, room: r });
-                    pulseGuardCam([r, old]);   // re-render nativo de las salas afectadas
+                if (role === 'foxy') {
+                    // Foxy: el progreso de cortina lo decide el jugador
+                    const fp = rs('fox progress');
+                    if (fp == null || fp >= 4) return;   // carrera/ataque: lógica del juego
+                    if (fp !== p.foxPeek) {
+                        setRS('fox progress', p.foxPeek);
+                        pulseGuardCam(['1C']);
+                        log('guion movió a Foxy (' + fp + ') — revertido (' + p.foxPeek + ')');
+                    }
+                    return;
                 }
+                if (p.doorAssault || p.officeKillAt) return;   // asalto/kill: cadena original
+                const idx = rs(ACTIVITY_COUNTER[role]);
+                if (idx == null || p.room == null) return;
+                const expected = ROOM_INDEX[role][p.room];
+                if (expected == null || idx === expected) return;
+                if (idx >= DOOR_FRAME[role]) return;           // estados de puerta/kill: no tocar
+                setRS(ACTIVITY_COUNTER[role], expected);
+                pulseGuardCam([p.room]);   // re-render nativo si el guardia mira la sala
+                log('guion movió a ' + role + ' (' + idx + ') — revertido a ' + p.room + ' (' + expected + ')');
             });
-        }, 1000);
+        }, 300);
 
         // RETIRADA ORIGINAL de la puerta: en el juego original, si el guardia
         // cierra la puerta, el animatrónico se cansa y vuelve al comedor. Con la
@@ -733,7 +864,10 @@
             // posiciones iniciales reales desde el juego
             Object.keys(state.players).forEach(role => {
                 const p = state.players[role];
-                p.room = (role === 'foxy') ? '1C' : roomFromIndex(role, rs(ACTIVITY_COUNTER[role]));
+                // ojo: al cambiar de frame los contadores aún no existen
+                // (rs() devuelve null) → conservar la posición de arranque
+                const fromCounter = roomFromIndex(role, rs(ACTIVITY_COUNTER[role]));
+                p.room = (role === 'foxy') ? '1C' : (fromCounter || '1A');
                 p.roomChangedAt = 0;
                 p.attackAt = 0;
                 p.doorClosedSince = 0;
@@ -745,6 +879,7 @@
                 p.killForced = false;
                 p.doorSince = 0;
                 p.killDeadline = 0;
+                p.foxPeek = 0;
             });
             host && host.broadcast({ t: 'phase', p: 'night', night: state.night });
             log('Noche ' + state.night + ' iniciada');
@@ -854,17 +989,22 @@
     }
 
     function handleFoxyMove(p, entry, now) {
-        const cur = rs('fox progress');
+        // El progreso de cortina lo decide el JUGADOR (p.foxPeek): el guion
+        // por hora del juego demo también escribe 'fox progress' y no debe
+        // colarse aquí (el bucle de autoridad lo revierte).
+        const cur = (p.foxPeek != null) ? p.foxPeek : rs('fox progress');
         if (cur == null) return;
         if (cur >= 3) {
             try { entry.conn.send(JSON.stringify({ t: 'moveBad', why: 'max-cortina' })); } catch (e) { }
             return;
         }
-        setRS('fox progress', cur + 1);
+        const next = cur + 1;
+        setRS('fox progress', next);
+        p.foxPeek = next;
         p.lastMove = now;
         // Foxy asomándose es visible en la CAM 1C: refrescar si el guardia la mira
         pulseGuardCam(['1C']);
-        try { entry.conn.send(JSON.stringify({ t: 'moveOk', room: '1C', progress: cur + 1 })); } catch (e) { }
+        try { entry.conn.send(JSON.stringify({ t: 'moveOk', room: '1C', progress: next })); } catch (e) { }
     }
 
     function handleAttack(m, entry) {
@@ -878,13 +1018,14 @@
                 try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'cooldown' })); } catch (e) { }
                 return;
             }
-            const cur = rs('fox progress');
+            const cur = (p.foxPeek != null) ? p.foxPeek : rs('fox progress');
             if (cur == null || cur < 1) {
                 try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'asomate-primero' })); } catch (e) { }
                 return;
             }
             setRS('fox progress', 4);
             p.attackAt = now;
+            p.foxPeek = 0;   // la carrera consume el asomo
             try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true })); } catch (e) { }
             log('FOXY corre por el pasillo oeste');
             return;
@@ -1030,6 +1171,7 @@
             if (now - (p.lastRetreat || 0) < 2000) return;
             p.lastRetreat = now;
             setRS('fox progress', 0);
+            p.foxPeek = 0;
             pulseGuardCam(['1C']);
             try { entry.conn.send(JSON.stringify({ t: 'moveOk', room: '1C', progress: 0 })); } catch (e) { }
             return;
