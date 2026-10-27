@@ -103,6 +103,8 @@
 
     // ------------------- Estado del cliente -------------------
     const WALK_MS = 950;   // igual que la caminata que ve el guardia
+    const DOOR_CD = 10000; // espera entre aproximaciones a la puerta
+    const BURST_MS = 1200; // ventana de irrupción (igual que el host)
     const cli = {
         room: (ROLE === 'foxy') ? '1C' : '1A',
         phase: 'connecting',
@@ -111,13 +113,18 @@
         foxPeek: 0,
         attackBusy: false,
         atDoor: false,
+        doorSide: null,        // 'L' | 'R' mientras estás en el marco
         enteredOffice: false,
+        bursting: false,       // irrupción en curso (1.2s)
+        burstAt: 0,
         attackAt: 0,
+        lastDoorAt: 0,         // cooldown local del botón ASOMARSE
         walking: false,
         walkDest: null,
         walkFrom: null,
         pendingMove: null,
         sprintUntil: 0,
+        runShown: false,       // vista de carrera de Foxy activa
         cooldown: { jumpscare: 0, special: 0 },
         connected: false,
         lastMoveSent: 0
@@ -267,10 +274,45 @@
     // Vista en primera persona del MARCO DE LA PUERTA de la oficina
     function setDoorView() {
         const left = (ROLE === 'bonnie');
+        cli.doorSide = left ? 'L' : 'R';
         setRoomImage(left ? 'doorL' : 'doorR');
+        document.body.classList.add('atdoor');
         $('roomname').textContent = left
             ? 'MARCO DE LA PUERTA IZQUIERDA'
             : 'MARCO DE LA PUERTA DERECHA';
+    }
+
+    function leaveDoorView() {
+        document.body.classList.remove('atdoor');
+        view.classList.remove('bursting');
+        updateDoorBanner(null, true);
+    }
+
+    function myDoorClosed(s) {
+        s = s || cli.state;
+        if (!s) return false;
+        return cli.doorSide === 'L' ? !!s.doorL : !!s.doorR;
+    }
+
+    // Banner de estado de la puerta mientras estás en el marco
+    function updateDoorBanner(s, hide) {
+        const el = $('doorbanner');
+        if (!el) return;
+        if (hide || !cli.atDoor) { el.className = ''; el.style.display = 'none'; return; }
+        if (cli.enteredOffice) {
+            el.className = 'in';
+            el.innerHTML = '☠ ¡ESTÁS DENTRO DE LA OFICINA! ☠<small>El guardia está perdido — jumpscare original en camino</small>';
+        } else if (cli.bursting) {
+            el.className = 'burst';
+            el.innerHTML = '¡IRRUPIENDO EN LA OFICINA!<small>El guardia aún puede cerrar la puerta...</small>';
+        } else if (myDoorClosed(s)) {
+            el.className = 'closed';
+            el.innerHTML = 'PUERTA CERRADA<small>No puedes entrar — retírate y espera tu momento</small>';
+        } else {
+            el.className = 'open';
+            el.innerHTML = 'PUERTA ABIERTA<small>El guardia está expuesto — ¡PUEDES ATACAR!</small>';
+        }
+        el.style.display = 'block';
     }
 
     function cancelWalk(msg) {
@@ -289,53 +331,96 @@
         return cli.walking || cli.attackBusy || cli.atDoor || cli.phase !== 'night';
     }
 
-    function mkNavBtn(cls, arrow, label, onClick, disabled) {
+    function mkNavBtn(cls, arrow, label, onClick, disabled, sub) {
         const b = document.createElement('button');
         b.className = 'navbtn' + (cls ? ' ' + cls : '');
-        b.innerHTML = '<span class="dir">' + arrow + '</span><span>' + label + '</span>';
+        b.innerHTML = '<span class="dir">' + arrow + '</span><span class="txt">' + label +
+            (sub ? '<small>' + sub + '</small>' : '') + '</span>';
         b.disabled = !!disabled;
-        b.addEventListener('click', onClick);
+        if (onClick) b.addEventListener('click', onClick);
         nav.appendChild(b);
         return b;
+    }
+
+    function doorCdLeft() {
+        return Math.max(0, DOOR_CD - (Date.now() - cli.lastDoorAt));
     }
 
     function renderNav() {
         nav.innerHTML = '';
         if (ROLE === 'foxy') return renderFoxyNav();
+        if (cli.atDoor) return renderDoorNav();
         const here = cli.room;
-        const opts = ADJACENCY[here] || [];
+        // salas legales para este rol (el mapa del juego es distinto por
+        // animatrónico: bonnie va al oeste, chica/freddy al este). Antes se
+        // mostraban botones del "otro lado" que el host rechazaba y la
+        // caminata se rebobinaba — bug: "aparece 1 segundo y se regresa".
+        const legal = Object.values(IDX_ROOM[ROLE] || {});
+        const opts = (ADJACENCY[here] || []).filter(dest =>
+            dest !== '1C' && legal.indexOf(dest) !== -1);
         opts.forEach(dest => {
-            if (dest === '1C') return; // la cueva es territorio de Foxy
             const arrow = (NAV_ARROW[here] && NAV_ARROW[here][dest]) || '•';
             mkNavBtn('', arrow, ROOM_NAME[dest] || dest, () => tryMove(dest), navDisabled());
         });
-        if (here === '2B' && ROLE === 'bonnie') mkNavBtn('attack', '▶', 'ENTRAR A LA OFICINA', doAttack, cli.attackBusy);
-        if (here === '4B' && (ROLE === 'chica' || ROLE === 'freddy')) mkNavBtn('attack', '▶', 'ENTRAR A LA OFICINA', doAttack, cli.attackBusy);
-        // retirada voluntaria del marco de la puerta
-        if (cli.atDoor || cli.attackBusy) mkNavBtn('', '◁', 'RETIRARSE DE LA PUERTA', retreatFromDoor, false);
+        // aproximación a la puerta desde la esquina del pasillo
+        const atCorner = (here === '2B' && ROLE === 'bonnie') || (here === '4B' && (ROLE === 'chica' || ROLE === 'freddy'));
+        if (atCorner) {
+            const cd = doorCdLeft();
+            const side = (ROLE === 'bonnie') ? 'puerta izquierda' : 'puerta derecha';
+            const b = mkNavBtn('attack', '◑', 'ASOMARSE A LA PUERTA', doAttack,
+                cd > 0 || cli.attackBusy || navDisabled(),
+                cd > 0 ? ('enfriando ' + Math.ceil(cd / 1000) + 's') : side);
+            b.id = 'btn-door';
+        }
+    }
+
+    // ---- Botones EXCLUSIVOS del marco de la puerta ----
+    function renderDoorNav() {
+        if (cli.enteredOffice) {
+            mkNavBtn('wait', '☠', '¡DENTRO DE LA OFICINA!', null, true, 'El guardia ya no puede hacer nada...');
+            return;
+        }
+        if (cli.bursting) {
+            mkNavBtn('burst', '»', '¡IRRUPIENDO!', null, true, 'El guardia puede cerrar la puerta...');
+            return;
+        }
+        const closed = myDoorClosed();
+        mkNavBtn('attack kill', '▶', '¡ENTRAR Y ATACAR!', attackFromDoor, closed,
+            closed ? 'la puerta está cerrada' : 'el guardia no reacciona a tiempo');
+        mkNavBtn('', '◁', 'RETIRARSE A LA ESQUINA', retreatFromDoor, false);
     }
 
     function retreatFromDoor() {
         if (!cli.atDoor && !cli.attackBusy) return;
         if (!net || !cli.connected) return;
         net.send({ t: 'ability', kind: 'doorRetreat' });
-        toast('Caminas de regreso al comedor...');
+        toast('Te retiras de la puerta de vuelta a la esquina...');
+        // respaldo: si el host no contesta en 1.5s, reintentar una vez
+        setTimeout(() => {
+            if (cli.atDoor && cli.phase === 'night') {
+                net && net.send({ t: 'ability', kind: 'doorRetreat' });
+            }
+        }, 1500);
     }
 
     function renderFoxyNav() {
         // Foxy: asomarse (máximo 3) y correr
         mkNavBtn('', '◑', 'ASOMARSE FUERA DE LA CORTINA', () => {
             if (navDisabled()) return;
+            if (Date.now() - cli.lastMoveSent < 600) return; // ritmo (igual que el host)
+            cli.lastMoveSent = Date.now();
             net && net.send({ t: 'move', to: 'peek' });
-        }, cli.foxPeek >= 3 || cli.attackBusy || cli.phase !== 'night');
-        mkNavBtn('attack', '!', '¡CORRER A LA OFICINA!', doAttack, cli.foxPeek < 1 || cli.attackBusy || cli.phase !== 'night');
-        if (cli.foxPeek > 0) {
+        }, cli.foxPeek >= 3 || cli.attackBusy || cli.phase !== 'night',
+            cli.foxPeek >= 3 ? 'ya estás fuera del todo' : 'el guardia te ve en la CAM 1C');
+        mkNavBtn('attack', '!', '¡CORRER A LA OFICINA!', doAttack, cli.foxPeek < 1 || cli.attackBusy || cli.phase !== 'night',
+            cli.foxPeek < 1 ? 'asómate primero' : 'por el pasillo oeste');
+        if (cli.foxPeek > 0 && !cli.attackBusy) {
             mkNavBtn('', '◁', 'VOLVER TRAS LA CORTINA', () => {
                 cli.foxPeek = 0;
                 setFoxPeek(0);
                 net && net.send({ t: 'ability', kind: 'foxyRetreat' });
                 toast('Vuelves detrás de la cortina');
-            }, cli.attackBusy);
+            }, false);
         }
         const overlays = ['(Tras la cortina)', '(Asomado)', '(Medio fuera)', '(Fuera de la cortina)'];
         if (!cli.walking) $('roomname').textContent = ROOM_NAME['1C'] + ' ' + (overlays[cli.foxPeek] || '');
@@ -344,9 +429,12 @@
     function tryMove(dest) {
         if (!net || !cli.connected || cli.phase !== 'night') return;
         if (cli.walking) { toast('Ya te estás moviendo...'); return; }
-        if (cli.attackBusy || cli.atDoor) { toast('Estás en la puerta de la oficina: no puedes irte así.'); return; }
+        if (cli.attackBusy || cli.atDoor) { toast('Estás en la puerta de la oficina: usa sus botones.'); return; }
         const now = Date.now();
-        const pace = now < cli.sprintUntil ? 250 : 400;
+        // El cliente regula MÁS lento que el host (450ms): así el host
+        // nunca rechaza el movimiento y la caminata optimista nunca
+        // se rebobina (bug: "aparece 1 segundo y se regresa").
+        const pace = now < cli.sprintUntil ? 400 : 600;
         if (now - cli.lastMoveSent < pace) { toast('Demasiado rápido...'); return; }
         cli.lastMoveSent = now;
         cli.pendingMove = dest;
@@ -354,29 +442,52 @@
         startWalk(dest); // optimista: camina YA, el host confirma en breve
     }
 
+    // ---- Aproximación desde la esquina hasta el marco de la puerta ----
     function doAttack() {
-        if (!net || !cli.connected || cli.phase !== 'night' || cli.attackBusy || cli.walking) return;
+        if (!net || !cli.connected || cli.phase !== 'night' || cli.attackBusy || cli.walking || cli.atDoor) return;
         net.send({ t: 'attack' });
         cli.attackBusy = true;
         cli.attackAt = Date.now();
+        cli.lastDoorAt = Date.now();
         renderNav();
-        if (ROLE === 'foxy') {
-            toast('¡¡CORREEES!! Te disparas por el pasillo oeste!');
-            playLocal('sprint.mp3', 0.7);
-        } else {
-            toast('Sales de la esquina hacia la puerta de la oficina...');
-        }
+        toast('Cruzas la esquina y te asomas al marco de la puerta...');
         glitch.classList.add('on');
-        setTimeout(() => glitch.classList.remove('on'), 900);
-        // seguridad: si el host/juego no resuelve en 10.5s, liberar el botón
+        setTimeout(() => glitch.classList.remove('on'), 600);
+        // seguridad: si el host/juego no resuelve en 6s, liberar el botón
         setTimeout(() => {
-            if (cli.attackBusy && cli.phase === 'night' && Date.now() - cli.attackAt >= 10500) {
+            if (cli.attackBusy && !cli.atDoor && cli.phase === 'night' && Date.now() - cli.attackAt >= 5800) {
                 cli.attackBusy = false;
-                cli.atDoor = false;
                 renderNav();
-                toast('Te retiras de la puerta sin éxito...');
+                toast('No lograste llegar al marco...');
             }
-        }, 10600);
+        }, 6100);
+    }
+
+    // ---- Irrupción: ataque DESDE el marco de la puerta ----
+    function attackFromDoor() {
+        if (!net || !cli.connected || !cli.atDoor || cli.bursting || cli.enteredOffice) return;
+        if (myDoorClosed()) { toast('¡La puerta está CERRADA! Retírate y espera.'); return; }
+        net.send({ t: 'attack', door: true });
+        cli.bursting = true;
+        cli.burstAt = Date.now();
+        view.classList.add('bursting');
+        playLocal('sprint.mp3', 0.8);
+        renderNav();
+        updateDoorBanner();
+        toast('¡TE LANZAS HACIA EL INTERIOR DE LA OFICINA!');
+        // Al terminar la irrupción sin rebote: estás DENTRO — el temporizador
+        // ORIGINAL del juego ejecutará el kill (si el guardia cierra a tiempo,
+        // el host te rebota con doorOut y todo se limpia en ese momento).
+        setTimeout(() => {
+            if (cli.bursting && cli.phase === 'night' && cli.atDoor) {
+                cli.bursting = false;
+                cli.enteredOffice = true;
+                view.classList.remove('bursting');
+                renderNav();
+                updateDoorBanner();
+                toast('¡ENTRASTE A LA OFICINA! El guardia ya no puede hacer nada...');
+            }
+        }, BURST_MS + 250);
     }
 
     // ------------------- Habilidades -------------------
@@ -399,7 +510,7 @@
         if (kind === 'jumpscare') {
             net.send({ t: 'ability', kind: 'jumpscare' });
             toast('¡JUMPSCARE! El guardia ve tu cara original... pero sigue vivo.');
-            playLocal('scream.mp3', 0.5);
+            playLocal('scream.mp3', 0.7);
         } else {
             net.send({ t: 'ability', kind: 'special' });
             if (ROLE === 'foxy') {
@@ -425,6 +536,18 @@
         $('ab-jump').disabled = cdJ > 0 || cli.phase !== 'night';
         $('ab-spec').disabled = cdS > 0 || cli.phase !== 'night';
         $('spec-name').textContent = SPEC_INFO[ROLE].name;
+        // refresco en vivo del cooldown del botón ASOMARSE (sin re-render)
+        const b = $('btn-door');
+        if (b) {
+            const cd = doorCdLeft();
+            const small = b.querySelector('small');
+            if (cd > 0) {
+                b.disabled = true;
+                if (small) small.textContent = 'enfriando ' + Math.ceil(cd / 1000) + 's';
+            } else if (small && small.textContent.indexOf('enfriando') === 0) {
+                renderNav();
+            }
+        }
     }
     setInterval(updateAbilityUI, 250);
 
@@ -461,10 +584,48 @@
             toast('¡La luz de la puerta se enciende! El guardia está revisando tu pasillo...');
         }
 
+        // banner de la puerta + compañeros de sala
+        if (cli.atDoor) updateDoorBanner(s);
+        updateCompanions(s);
+
         updateMinimap(s);
     }
 
+    // ¿Quién más está en tu misma sala? (presencia en primera persona)
+    function updateCompanions(s) {
+        const box = $('mates');
+        if (!box || !s || !s.positions) return;
+        const here = [];
+        ['foxy', 'bonnie', 'chica', 'freddy'].forEach(r => {
+            if (r === ROLE) return;
+            const pos = s.positions[r];
+            if (pos == null) return;
+            let room = null;
+            if (r === 'foxy') room = (pos >= 4) ? '2A' : '1C';
+            else if (pos < 7) room = IDX_ROOM[r][pos] || null;
+            if (room === cli.room) here.push(r);
+        });
+        if (here.length) {
+            box.innerHTML = here.map(r =>
+                '<img src="assets/roles/' + r + '.png" alt="' + r.toUpperCase() + '" title="' + r.toUpperCase() + ' está aquí">').join('');
+            box.style.display = 'flex';
+        } else {
+            box.style.display = 'none';
+        }
+    }
+
     // ------------------- Fases -------------------
+    function resetDoorState() {
+        cli.attackBusy = false;
+        cli.atDoor = false;
+        cli.enteredOffice = false;
+        cli.bursting = false;
+        cli.runShown = false;
+        cli.walking = false;
+        view.classList.remove('walk', 'fast', 'running', 'bursting');
+        leaveDoorView();
+    }
+
     function setPhase(p, data) {
         cli.phase = p;
         updateAbilityUI();
@@ -475,22 +636,17 @@
         } else if (p === 'death') {
             const by = (data && data.by) || 'un animatrónico';
             const iWin = by === ROLE;
-            cli.attackBusy = false;
-            cli.atDoor = false;
-            cli.enteredOffice = false;
-            cli.walking = false;
-            view.classList.remove('walk', 'fast');
+            resetDoorState();
+            if (iWin) playLocal('scream.mp3', 0.85);
             showScreen(
                 roleIconTag() +
                 '<h1 class="' + (iWin ? 'win' : 'dead') + '">' + (iWin ? '¡ATRAPASTE AL GUARDIA!' : 'FIN DE LA NOCHE') + '</h1>' +
                 '<div class="sub">' + (iWin
-                    ? 'Tu jumpscare original se ha cobrado otra víctima. ' + (ROLE === 'foxy' ? 'Corriste por el pasillo y nadie cerró la puerta a tiempo.' : 'Entraste por la puerta y el guardia no pudo cerrarla a tiempo.')
+                    ? 'Tu jumpscare original se ha cobrado otra víctima. ' + (ROLE === 'foxy' ? 'Corriste por el pasillo y nadie cerró la puerta a tiempo.' : 'Irrumpiste en la oficina y el guardia no pudo cerrarla a tiempo.')
                     : 'El guardia fue atrapado por ' + by.toUpperCase() + '. Buen trabajo de equipo.') + '</div>' +
                 '<div class="sub">Esperando al guardia para la revancha...</div>');
         } else if (p === 'win') {
-            cli.attackBusy = false;
-            cli.atDoor = false;
-            cli.enteredOffice = false;
+            resetDoorState();
             showScreen(
                 roleIconTag() +
                 '<h1 class="win">6 AM</h1>' +
@@ -509,7 +665,22 @@
                 cli.foxPeek = fp;
                 setFoxPeek(fp);
             }
-            view.classList.toggle('running', (fp === 4 || fp === 5) && cli.attackBusy);
+            // CARRERA de Foxy: imagen de sprint por el pasillo + animación
+            if ((fp === 4 || fp === 5) && cli.attackBusy) {
+                if (!cli.runShown) {
+                    cli.runShown = true;
+                    setRoomImage('run');
+                    view.classList.add('running');
+                    $('roomname').textContent = '¡CORRIENDO POR EL PASILLO OESTE!';
+                    toast('¡¡CORREEES!! El guardia todavía puede cerrar la puerta...');
+                }
+            } else if (cli.runShown && fp != null && fp < 4) {
+                // la carrera terminó (rebote o nueva noche)
+                cli.runShown = false;
+                view.classList.remove('running');
+                setFoxPeek(cli.foxPeek);
+                renderNav();
+            }
             // tras la corrida, el juego devuelve a Foxy a la cortina
             if (fp === 0 && cli.attackBusy) {
                 cli.attackBusy = false;
@@ -527,20 +698,28 @@
             // el juego original controla todo lo que sigue
             if (!cli.atDoor) {
                 cli.atDoor = true;
+                cli.attackBusy = false;   // llegaste: dejan de aplicar los botones de esquina
                 setDoorView();
                 renderNav();
-                toast('Te asomas al marco de la puerta de la oficina...');
+                updateDoorBanner(s);
+                playLocal('footstep.mp3', 0.5);
+                toast('Te asomas al marco de la puerta... vigila el estado de la puerta.');
             }
             if (act >= 8 && !cli.enteredOffice) {
                 cli.enteredOffice = true;
+                cli.bursting = false;
+                view.classList.remove('bursting');
+                renderNav();
+                updateDoorBanner(s);
                 toast('¡ENTRASTE A LA OFICINA! Cuando el guardia baje el monitor... ¡adiós guardia!');
                 playLocal('footstep.mp3', 0.55);
             }
             // aviso: el guardia cerró la puerta mientras estás en el marco
             const myDoorClosed = (ROLE === 'bonnie') ? s.doorL : s.doorR;
-            if (act === 7 && myDoorClosed && !cli.enteredOffice && Date.now() - (cli._doorShutAt || 0) > 6000) {
+            if (act === 7 && myDoorClosed && !cli.enteredOffice && !cli.bursting &&
+                Date.now() - (cli._doorShutAt || 0) > 6000) {
                 cli._doorShutAt = Date.now();
-                toast('¡El guardia cerró la puerta! Te retirarán al comedor...');
+                toast('¡El guardia cerró la puerta! Retírate o espera a que la abra...');
             }
             return;
         }
@@ -550,13 +729,15 @@
             cli.atDoor = false;
             cli.attackBusy = false;
             cli.enteredOffice = false;
+            cli.bursting = false;
+            leaveDoorView();
             if (wasDoor) {
                 const r = room || cli.room;   // por si el contador aún no define sala
                 cli.room = r;
                 setView(r);   // imagen + nombre de sala correctos (siempre)
             }
             renderNav();
-            toast(wasDoor ? 'Puerta cerrada: te retiras al comedor. Podrás volver a intentarlo.' : 'Te retiran de la puerta.');
+            toast(wasDoor ? 'Vuelves a la sala. Podrás volver a intentarlo.' : 'Te retiran de la puerta.');
         }
         if (room && room !== cli.room && !cli.walking) {
             cli.room = room;
@@ -571,7 +752,6 @@
         view.style.filter = 'brightness(' + (0.7 + level * 0.15) + ') saturate(' + (0.9 + level * 0.12) + ')';
         renderNav();
     }
-
     // ------------------- Sonidos locales -------------------
     function playLocal(file, vol) {
         try {
@@ -585,15 +765,44 @@
     function connect() {
         showScreen('<h1>Conectando...</h1><div class="sub">Sala ' + ROOM + '</div>');
         net = new MP.Client();
-        net.connect(ROOM, NAME, ROLE,
-            function onReady() {
-                cli.connected = true;
-            },
-            function onFail() {
-                showScreen('<h1 class="dead">Sin conexión</h1><div class="sub">No se pudo conectar con el guardia.<br><br><a href="lobby.html" style="color:#ffd34d;">&gt; volver al lobby</a></div>');
-            });
+
+        // PeerJS ahora se carga con CDN de respaldo (asíncrono): hay que
+        // esperar a que exista antes de crear la conexión, o muere aquí.
+        const t0 = Date.now();
+        (function waitPeer() {
+            if (typeof window.Peer === 'undefined') {
+                if (Date.now() - t0 > 15000) {
+                    showScreen('<h1 class="dead">Sin conexión</h1><div class="sub">No se pudo cargar la red (PeerJS).<br>Revisa tu internet y vuelve a entrar.<br><br><a href="lobby.html" style="color:#ffd34d;">&gt; volver al lobby</a></div>');
+                    return;
+                }
+                setTimeout(waitPeer, 120);
+                return;
+            }
+            net.connect(ROOM, NAME, ROLE,
+                function onReady() {
+                    cli.connected = true;
+                },
+                function onFail() {
+                    showScreen('<h1 class="dead">Sin conexión</h1><div class="sub">No se pudo conectar con el guardia.<br><br><a href="lobby.html" style="color:#ffd34d;">&gt; volver al lobby</a></div>');
+                });
+            // AUTO-CURACIÓN: a veces PeerJS se queda en un bucle de reconexión
+            // mudo (p. ej. tras una recarga del guardia). Si en 25s no llegó
+            // el 'welcome' de ESTA conexión, recargar UNA sola vez (flag rc=1).
+            cli.gotWelcome = false;
+            if (window.location.search.indexOf('rc=') === -1) {
+                const checkT0 = Date.now();
+                const iv = setInterval(() => {
+                    if (cli.gotWelcome) { clearInterval(iv); return; }
+                    if (Date.now() - checkT0 > 25000) {
+                        clearInterval(iv);
+                        window.location.href = window.location.href + '&rc=1';
+                    }
+                }, 2000);
+            }
+        })();
 
         net.on('welcome', (m) => {
+            cli.gotWelcome = true;
             cli.night = m.night || 1;
             if (m.room) { cli.room = m.room; }
             const inNight = m.phase === 'night';
@@ -617,17 +826,33 @@
         net.on('phase', (m) => {
             if (m.p === 'night') {
                 cli.night = m.night || cli.night;
-                cli.attackBusy = false;
-                cli.atDoor = false;
-                cli.enteredOffice = false;
-                cli.walking = false;
-                view.classList.remove('walk', 'fast', 'running');
+                resetDoorState();
                 cli.foxPeek = 0;
                 cli.room = (ROLE === 'foxy') ? '1C' : '1A'; // nueva noche: todos al inicio
                 if (ROLE !== 'foxy') view.style.filter = '';
                 cli.state = null;
             }
             setPhase(m.p, m);
+        });
+        net.on('doorOut', (m) => {
+            // el host confirmó la salida de la puerta (voluntaria o rebote)
+            const wasBurst = cli.bursting;
+            cli.atDoor = false;
+            cli.attackBusy = false;
+            cli.enteredOffice = false;
+            cli.bursting = false;
+            leaveDoorView();
+            if (m.room) {
+                cli.room = m.room;
+                setView(m.room);
+            }
+            renderNav();
+            if (wasBurst || (m.why || '').indexOf('irrupci') >= 0) {
+                toast('¡La puerta se cerró justo a tiempo! Rebotas hacia el ' + (ROOM_NAME[m.room] || 'comedor') + '.');
+                playLocal('doorSlam.mp3', 0.7);
+            } else {
+                toast('Te retiras con cuidado a la esquina...');
+            }
         });
         net.on('moveOk', (m) => {
             if (ROLE === 'foxy') {
@@ -655,14 +880,25 @@
         });
         net.on('atk', (m) => {
             if (m && m.ok === false) {
+                // fallo del ataque: liberar TODOS los estados de puerta
+                const wasBurst = cli.bursting;
                 cli.attackBusy = false;
                 cli.atDoor = false;
-                renderNav();
-                if (m.why === 'puerta-cerrada') toast('¡La puerta estaba CERRADA! Tu ataque rebota.');
-                else if (m.why === 'cooldown') toast('El ataque aún se enfría (12s entre intentos)...');
-                else if (m.why === 'lejos') toast('Debes estar en la esquina del pasillo para entrar.');
+                cli.bursting = false;
+                view.classList.remove('bursting');
+                if (m.why === 'puerta-cerrada') {
+                    if (wasBurst) playLocal('doorSlam.mp3', 0.7);
+                    toast('¡La puerta estaba CERRADA! Tu ataque rebota.');
+                }
+                else if (m.why === 'cooldown') toast('El ataque aún se enfría (' + (m.wait || 10) + 's entre intentos)...');
+                else if (m.why === 'lejos') toast('Debes estar en la esquina del pasillo para asomarte.');
                 else if (m.why === 'asomate-primero') toast('Asímate primero fuera de la cortina.');
                 else toast('Aún no puedes atacar.');
+                leaveDoorView();
+                renderNav();
+            } else if (m && m.ok === true && m.burst) {
+                // el host aceptó la irrupción: mantener el estado hasta resolución
+                cli.bursting = true;
             }
         });
         net.on('ability', (m) => {

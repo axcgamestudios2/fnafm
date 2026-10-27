@@ -22,6 +22,9 @@
     const ROOM = params.get('mp');
     if (!ROOM) return; // un jugador: no hacer nada
 
+    const BRIDGE_VERSION = 'v5-kill-transicion';
+    try { console.log('[MP] guard-bridge ' + BRIDGE_VERSION); } catch (e) { }
+
     const MY_NAME = params.get('name') || 'Guardia';
     // esta página vive en /1/ → los recursos MP están en ../mp/
     const MP_URL = '../mp/';
@@ -145,6 +148,35 @@
             s.onerror = () => res(false);
             document.head.appendChild(s);
         });
+    }
+
+    async function loadScriptFB(urls) {
+        for (let i = 0; i < urls.length; i++) {
+            if (await loadScript(urls[i])) {
+                // ¿de verdad se cargó? (un CDN caído puede ejecutar onerror tarde)
+                if (typeof window.Peer !== 'undefined') return true;
+            }
+        }
+        return typeof window.Peer !== 'undefined';
+    }
+
+    // Precarga de imágenes de overlay (jumpscare + estática): decodificar
+    // ANTES de que hagan falta evita el tirón de lag/engelote de la primera
+    // vez (bug: "la parte de la screenshot súper trabada").
+    const preloaded = {};
+    function preloadOverlays() {
+        ['bonnie', 'chica', 'foxy', 'freddy'].forEach(r => {
+            if (!preloaded[r]) {
+                const i = new Image();
+                i.src = MP_URL + 'assets/jumpscares/' + r + '.png';
+                preloaded[r] = i;
+            }
+        });
+        if (!preloaded.static) {
+            const i = new Image();
+            i.src = 'resources/background.gif';
+            preloaded.static = i;
+        }
     }
 
     // estilos de overlays
@@ -316,9 +348,15 @@
     let host = null;
 
     // ---------------------------------------------------------
-    // VISTA DE LA PUERTA CON LA LUZ: si el guardia mantiene la luz y
-    // hay un animatrónico en el marco (act=7) con la puerta ABIERTA,
-    // se le ve asomado en el vano (como el juego original).
+    // VISTA DE PUERTA/PASILLO CON LA LUZ (como el juego original):
+    // si el guardia MANTIENE la luz con la puerta abierta, ve al
+    // animatrónico según lo cerca que esté:
+    //   pasillo (índice 4/5) → silueta lejana y apagada al fondo
+    //   esquina (índice 6)   → asomado en el vano de la puerta
+    //   marco (índice 7/8)   → cara en primer plano
+    //   Foxy corriendo (progreso 4) también aparece en el pasillo O.
+    // Antes solo se veía el caso "índice 7": por eso "no salía el
+    // animatrónico en tu perspectiva aunque estuviera ahí".
     // ---------------------------------------------------------
     function updateDoorViews() {
         const a = app();
@@ -330,14 +368,30 @@
                 ? (img('left door') !== DOOR_IMG.L.closed)
                 : (img('right door') !== DOOR_IMG.R.closed);
             const lightOn = lightHold[side];
-            const atDoor = Object.keys(state.players).filter(r => {
-                if (r === 'foxy') return false;
+            if (!lightOn || !doorOpen || state.phase !== 'night' || rs('viewing') !== 0) {
+                if (d) d.remove();
+                return;
+            }
+            // recopilar animatrónicos visibles por este lado, por proximidad
+            const cands = [];
+            Object.keys(state.players).forEach(r => {
+                if (r === 'foxy') {
+                    if (side !== 'L') return;               // Foxy corre por el pasillo OESTE
+                    const fp = rs('fox progress');
+                    if (fp === 4) cands.push({ role: r, prox: 1, run: true });
+                    else if (fp === 5) cands.push({ role: r, prox: 3 });
+                    return;
+                }
                 const expected = (r === 'bonnie') ? 'L' : 'R';
-                if (expected !== side) return false;
-                return rs(ACTIVITY_COUNTER[r]) === 7;
+                if (expected !== side) return;
+                const idx = rs(ACTIVITY_COUNTER[r]);
+                if (idx === 7 || idx === 8) cands.push({ role: r, prox: 3 });
+                else if (idx === 6) cands.push({ role: r, prox: 2 });
+                else if ((side === 'L' && idx === 4) || (side === 'R' && idx === 5)) cands.push({ role: r, prox: 1 });
             });
-            const show = lightOn && doorOpen && atDoor.length > 0 && state.phase === 'night' && rs('viewing') === 0;
-            if (!show) { if (d) d.remove(); return; }
+            if (!cands.length) { if (d) d.remove(); return; }
+            cands.sort((x, y) => y.prox - x.prox);
+            const best = cands[0];
             // posición relativa al canvas (el despacho es panorámico y scrollea)
             const rect = a.canvas.getBoundingClientRect();
             const scale = rect.width / a.gaCxWin;
@@ -357,20 +411,57 @@
             d.style.width = Math.max(30, cssX2 - cssX1) + 'px';
             d.style.top = (rect.top + rect.height * 0.12) + 'px';
             d.style.height = (rect.height * 0.82) + 'px';
-            const html = atDoor.map(r =>
-                '<img src="' + MP_URL + 'assets/jumpscares/' + r + '.png" ' +
-                'style="flex:1;min-width:0;height:100%;object-fit:cover;object-position:top center;filter:brightness(.9) contrast(1.05);">').join('');
+            // estilo según proximidad (más lejos = más pequeño y apagado)
+            const base = 'flex:1;min-width:0;object-fit:cover;object-position:top center;';
+            const byProx = {
+                3: base + 'height:100%;filter:brightness(.92) contrast(1.05);',
+                2: base + 'height:86%;align-self:flex-end;filter:brightness(.72) contrast(1.12) saturate(.85);margin:0 8%;',
+                1: base + 'height:46%;align-self:flex-end;filter:brightness(.45) contrast(1.25) saturate(.6);margin:0 16%;opacity:.8;' +
+                    (best.run ? 'transform:scaleX(1.12);' : '')
+            };
+            const html = '<img src="' + MP_URL + 'assets/jumpscares/' + best.role + '.png" ' +
+                'style="' + byProx[best.prox] + '">';
             if (d.__h !== html) { d.__h = html; d.innerHTML = html; }
         });
     }
 
-    // Vigilante del ASALTO A LA PUERTA (100 ms). Cadena determinista:
-    //   ataque → 7 (marco de la puerta, el guardia puede cerrar)
-    //   → si la puerta sigue abierta tras ENTRY_MS → 8 (ENTRA a la
-    //     oficina) y el JUEGO ORIGINAL ejecuta el kill (jumpscare al
-    //     bajar el monitor — o automáticamente tras la entrada).
-    //   → si el guardia cierra, la retracción original lo devuelve al comedor.
-    const DOOR_ENTRY_MS = 4200;
+    // Vigilante del ASALTO A LA PUERTA (100 ms). Flujo con AGENCIA del jugador:
+    //   ataque desde esquina → 7 (marco de la puerta, el guardia puede cerrar)
+    //   el jugador decide: IRRUMPIR (1.2s) o RETIRARSE (vuelve a la esquina)
+    //   irrupción con la puerta abierta → margen de gracia (1.5s) → UN ciclo
+    //     de monitor forzado (subir→bajar): el kill ORIGINAL del juego se
+    //     dispara al BAJAR el monitor con el animatrónico en el marco
+    //     (mecánica original: en la puerta + bajar monitor = jumpscare).
+    //     El contador NUNCA se escribe a 8 desde fuera: un setRS(8) externo
+    //     cancela la cadena original y el kill nunca llega.
+    //   si el guardia cierra durante la irrupción (o en el margen) → rebote.
+    const BURST_MS = 1200;
+
+    // Forzar el kill: el juego original mata al guardia con la TRANSICIÓN
+    // "monitor baja" (viewing: ≠0 → 0) cuando hay un animatrónico en el
+    // marco. La escritura directa funciona pero la ráfaga de estática del
+    // juego reescribe 'viewing' y puede anular una transición concreta, así
+    // que se repite el ciclo (arriba 1.2s → abajo → esperar) hasta que el
+    // juego ejecute el kill (frame ≠ 2). Cada 1→0 es una transición real.
+    function forceMonitorCycle() {
+        let n = 0;
+        (function cycle() {
+            const a = app();
+            if (!a || a.currentFrame !== 2 || n++ >= 6) return;  // murió o límite
+            const v = rs('viewing');
+            if (v == null || v === 0) {
+                setRS('viewing', 1);                 // monitor arriba
+                setTimeout(() => {
+                    const a2 = app();
+                    if (a2 && a2.currentFrame === 2) setRS('viewing', 0);  // abajo
+                    setTimeout(cycle, 2000);
+                }, 1200);
+            } else {
+                setRS('viewing', 0);                 // estaba arriba: bajar ya
+                setTimeout(cycle, 2000);
+            }
+        })();
+    }
     function watchDoorAssaults() {
         const now = Date.now();
         Object.keys(state.players).forEach(role => {
@@ -378,31 +469,62 @@
             if (!p || !p.doorAssault) return;
             const idx = rs(ACTIVITY_COUNTER[role]);
             if (idx === 8) {
-                // ya entró: el juego ejecuta el kill original
-                p.doorAssault = false;
-                host && host.broadcast({ t: 'anim', role, room: 'doorIn' });
-                log(role.toUpperCase() + ' ENTRÓ a la oficina — kill original en camino');
+                // el juego lo metió dentro por sí solo: kill original en curso
+                if (!p.officeKillAt) {
+                    p.officeKillAt = now;
+                    host && host.broadcast({ t: 'anim', role, room: 'doorIn' });
+                    log(role.toUpperCase() + ' ENTRÓ a la oficina — kill original en camino');
+                }
             } else if (idx != null && idx < 7) {
                 // el juego/retirada lo sacó de la puerta
                 p.doorAssault = false;
-            } else if (idx === 7) {
-                // sigue en el marco: ¿la puerta sigue abierta?
+                p.burstUntil = 0;
+                p.burstDoneAt = 0;
+                p.officeKillAt = 0;
+                p.killForced = false;
+            } else if (idx === 7 && p.burstUntil) {
+                // irrupción en curso del jugador: resolver al terminar
+                if (now < p.burstUntil) return;
+                p.burstUntil = 0;
                 const doorClosed = (role === 'bonnie')
                     ? (img('left door') === DOOR_IMG.L.closed)
                     : (img('right door') === DOOR_IMG.R.closed);
-                if (doorClosed) return;         // la retracción lo devolverá
-                if (now - (p.assaultStartedAt || 0) >= DOOR_ENTRY_MS) {
-                    // ventana del guardia vencida: ENTRAR (kill original)
-                    setRS(ACTIVITY_COUNTER[role], 8);
-                    host && host.broadcast({ t: 'anim', role, room: 'doorIn' });
-                    log(role.toUpperCase() + ' ENTRA a la oficina (puerta abierta, ventana vencida)');
+                if (doorClosed) {
+                    // el guardia cerró durante la irrupción: rebote al comedor
+                    playSfx('doorSlam.mp3', 0.8);
+                    retractFromDoor(role, 'puerta cerrada durante la irrupción', 'dining');
+                    try { p.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'puerta-cerrada' })); } catch (e) { }
+                } else {
+                    // irrumpió con la puerta abierta: tras un margen de gracia,
+                    // forzar UN ciclo de monitor — el kill ORIGINAL del juego
+                    // se dispara al bajar el monitor con él en el marco.
+                    p.burstDoneAt = now;
+                    log(role.toUpperCase() + ' irrumpió con la puerta abierta — kill en camino');
                 }
+            } else if (idx === 7 && p.burstDoneAt && !p.killForced) {
+                // margen de gracia para que el guardia cierre la puerta
+                if (now - p.burstDoneAt < 1500) return;
+                const stillClosed = (role === 'bonnie')
+                    ? (img('left door') === DOOR_IMG.L.closed)
+                    : (img('right door') === DOOR_IMG.R.closed);
+                if (stillClosed) {
+                    // se salvó justo: no matar — la retracción lo devuelve
+                    p.burstDoneAt = 0;
+                    return;
+                }
+                p.killForced = true;
+                p.officeKillAt = now;
+                forceMonitorCycle();
+                log('ciclo de monitor forzado — el juego ejecuta el kill original');
             }
         });
     }
 
     async function startHost() {
-        await loadScript('https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js');
+        await loadScriptFB([
+            'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
+            'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js'
+        ]);
         await loadScript(MP_URL + 'net.js');
         if (typeof MP === 'undefined') { log('ERROR: no se pudo cargar la red'); return; }
 
@@ -451,6 +573,7 @@
     function onRuntimeReady() {
         log('Juego listo. Multijugador: sala ' + ROOM);
         showMpBadge();
+        preloadOverlays();          // decodificar overlays antes de la 1ª noche
         startHost();
         startLoops();
     }
@@ -530,9 +653,24 @@
     }
 
     function handleFrameChange(f, prev) {
+        // Periódico del principio ("Help Wanted"): en el original no hay ninguna
+        // pista de que hay que hacer CLIC para continuar y el guardia se
+        // quedaba clavado aquí ("la parte de la screenshot súper trabada").
+        // En multijugador se avanza solo tras dejar leerlo un momento.
+        if (f === 9) {
+            setTimeout(() => {
+                const a = app();
+                if (a && a.currentFrame === 9) {
+                    gameClick(640, 360);
+                    log('Periódico avanzado automáticamente');
+                }
+            }, 2800);
+        }
+
         if (f === 2 && state.phase !== 'night') {
             state.phase = 'night';
             state.night = rs('night number') || state.night;
+            preloadOverlays();      // recalcular cache por si la red llegó tarde
             state.aiDefaults = {
                 freddy: rs('freddy AI'), bonnie: rs('bonie AI'),
                 chica: rs('chica AI'), foxy: rs('foxy AI')
@@ -545,6 +683,13 @@
                 p.roomChangedAt = 0;
                 p.walkPlayed = null;
                 p.attackAt = 0;
+                p.doorClosedSince = 0;
+                p.retractAt = 0;
+                p.doorAssault = false;
+                p.burstUntil = 0;
+                p.burstDoneAt = 0;
+                p.officeKillAt = 0;
+                p.killForced = false;
                 delete markerAnim[role];
             });
             host && host.broadcast({ t: 'phase', p: 'night', night: state.night });
@@ -621,7 +766,10 @@
         const p = state.players[role];
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
-        const cd = p.sprintUntil && now < p.sprintUntil ? 350 : 500;
+        // El host es MÁS permisivo que el cliente (600ms/400ms en cliente):
+        // así el propio botón del cliente regula el ritmo y nunca hay
+        // rechazos que hagan "rebobinar" la caminata optimista.
+        const cd = p.sprintUntil && now < p.sprintUntil ? 300 : 450;
         if (now - p.lastMove < cd) {
             try { entry.conn.send(JSON.stringify({ t: 'moveBad', why: 'demasiado-rapido' })); } catch (e) { }
             return;
@@ -666,13 +814,12 @@
         const p = state.players[role];
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
-        if (now - (p.attackAt || 0) < 12000) {
-            // SIEMPRE responder: si no, el botón del cliente queda trabado
-            try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'cooldown' })); } catch (e) { }
-            return;
-        }
 
         if (role === 'foxy') {
+            if (now - (p.attackAt || 0) < 12000) {
+                try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'cooldown' })); } catch (e) { }
+                return;
+            }
             const cur = rs('fox progress');
             if (cur == null || cur < 1) {
                 try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'asomate-primero' })); } catch (e) { }
@@ -682,6 +829,36 @@
             p.attackAt = now;
             try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true })); } catch (e) { }
             log('FOXY corre por el pasillo oeste');
+            return;
+        }
+
+        const atFrame = rs(ACTIVITY_COUNTER[role]) === 7;
+
+        // ===== ATAQUE DESDE EL MARCO DE LA PUERTA (irrupción) =====
+        // El jugador ya se asomó (act=7) y decide irrumpir. El guardia
+        // tiene BURST_MS para cerrar la puerta. Sin cooldown: el
+        // contrajuego del guardia es cerrar a tiempo.
+        if (atFrame && m && m.door) {
+            const doorClosed = (role === 'bonnie')
+                ? (img('left door') === DOOR_IMG.L.closed)
+                : (img('right door') === DOOR_IMG.R.closed);
+            if (doorClosed) {
+                playSfx('doorSlam.mp3', 0.8);
+                retractFromDoor(role, 'puerta cerrada al irrumpir', 'dining');
+                try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'puerta-cerrada' })); } catch (e) { }
+                return;
+            }
+            p.burstUntil = now + BURST_MS;
+            p.doorAssault = true;
+            try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true, burst: BURST_MS })); } catch (e) { }
+            log(role.toUpperCase() + ' IRRUMPE hacia la oficina (ventana ' + BURST_MS + 'ms)');
+            return;
+        }
+
+        // ===== APROXIMACIÓN: desde la esquina hasta el marco =====
+        if (now - (p.attackAt || 0) < 10000) {
+            // SIEMPRE responder: si no, el botón del cliente queda trabado
+            try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'cooldown', wait: Math.ceil((10000 - (now - (p.attackAt || 0))) / 1000) })); } catch (e) { }
             return;
         }
         const expected = (role === 'bonnie') ? '2B' : '4B';
@@ -702,32 +879,38 @@
         p.attackAt = now;
         p.roomChangedAt = 0;
         p.doorAssault = true;
-        p.assaultStartedAt = now;
-        // Cadena determinista de la puerta: el jugador queda en el MARCO
-        // (7) y el vigilante lo entra (8) tras DOOR_ENTRY_MS si el guardia
-        // no cierra — a partir de ahí el JUEGO ORIGINAL ejecuta el kill
-        // (jumpscare al bajar el monitor). Antes la IA congelada dejaba
-        // el asalto clavado en 7 para siempre: ni se veía en el marco
-        // ni mataba jamás.
+        p.burstUntil = 0;
+        // pista sutil para el guardia: pasos/golpecito en el marco
+        playSfx('knock.mp3', 0.3);
         try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true })); } catch (e) { }
-        log(role.toUpperCase() + ' acecha la puerta ' + (role === 'bonnie' ? 'izquierda' : 'derecha'));
+        log(role.toUpperCase() + ' se asoma al marco de la puerta ' + (role === 'bonnie' ? 'izquierda' : 'derecha'));
     }
 
     // ---------------------------------------------------------
     // Habilidades
     // ---------------------------------------------------------
-    function retractFromDoor(role, why) {
+    function retractFromDoor(role, why, dest) {
         const p = state.players[role];
         if (!p) return;
-        setRS(ACTIVITY_COUNTER[role], 2);   // comportamiento original: vuelve al comedor
-        p.room = roomFromIndex(role, 2) || '1B';
+        // dest: 'corner' (retirada voluntaria: vuelve a la esquina) o
+        //       'dining' (rebote/castigo: vuelve al comedor como el original)
+        const corner = (role === 'bonnie') ? '2B' : '4B';
+        const target = (dest === 'corner') ? corner : '1B';
+        setRS(ACTIVITY_COUNTER[role], ROOM_INDEX[role][target]);
+        p.room = target;
         p.roomChangedAt = performance.now();
         p.walkPlayed = null;
         p.doorClosedSince = 0;
         p.retractAt = 0;
-        try { p.conn.send(JSON.stringify({ t: 'moveOk', room: p.room })); } catch (e) { }
-        host.broadcast({ t: 'anim', role, room: p.room });
-        log(role + ' se retira de la puerta (' + why + ') — como el original');
+        p.doorAssault = false;
+        p.burstUntil = 0;
+        p.burstDoneAt = 0;
+        p.officeKillAt = 0;
+        p.killForced = false;
+        try { p.conn.send(JSON.stringify({ t: 'doorOut', room: target, why: why || '' })); } catch (e) { }
+        try { p.conn.send(JSON.stringify({ t: 'moveOk', room: target })); } catch (e) { }
+        host.broadcast({ t: 'anim', role, room: target });
+        log(role + ' se retira de la puerta → ' + target + ' (' + why + ')');
     }
 
     function handleAbility(m, entry) {
@@ -736,9 +919,15 @@
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
 
-        // Retirada voluntaria de la puerta (sin cooldown)
+        // Retirada voluntaria de la puerta (sin cooldown): vuelve a la
+        // ESQUINA, no al comedor — castigo suave, puede reintentar pronto.
         if (m.kind === 'doorRetreat') {
-            if (rs(ACTIVITY_COUNTER[role]) === 7) retractFromDoor(role, 'decisión del jugador');
+            if (rs(ACTIVITY_COUNTER[role]) === 7) {
+                retractFromDoor(role, 'decisión del jugador', 'corner');
+            } else {
+                // no estaba en el marco: liberar al cliente por si acaso
+                try { entry.conn.send(JSON.stringify({ t: 'doorOut', room: roomOf(role) || '1B', why: 'no-estaba' })); } catch (e) { }
+            }
             return;
         }
 
@@ -789,18 +978,24 @@
     }
 
     function showHarmlessJumpscare(role) {
+        // imagen PREDECODIFICADA + capa propia (will-change) para que el
+        // temblor no fuerce repintados del canvas del juego (era "súper
+        // trabada"): la animación es 100% GPU.
         const d = overlayDiv('mp-jump',
-            '<img src="' + MP_URL + 'assets/jumpscares/' + role + '.png" style="height:105vh;width:100vw;object-fit:cover;animation:mpshake .09s infinite;">', 1300);
-        playSfx('scream.mp3', 0.6);
-        setTimeout(() => { d.remove(); showStaticInterference(400); }, 1250);
+            '<img src="' + MP_URL + 'assets/jumpscares/' + role + '.png" style="height:105vh;width:100vw;object-fit:cover;will-change:transform;transform:translateZ(0);backface-visibility:hidden;animation:mpshake .09s infinite;">', 1600);
+        // scream.mp3 = grito ORIGINAL del juego (0003, 2.25s, alto y seco)
+        playSfx('scream.mp3', 0.95);
+        setTimeout(() => { d.remove(); showStaticInterference(450); }, 1550);
     }
 
     function showStaticInterference(ms) {
         const d = overlayDiv('mp-static', '', ms || 3000);
         d.style.background = 'url(resources/background.gif)';
         d.style.backgroundSize = 'cover';
-        d.style.opacity = '0.85';
-        d.style.mixBlendMode = 'screen';
+        // SIN mix-blend-mode: encima de un canvas vivo es carísimo y
+        // freezaba el juego; con opacidad plana se ve casi igual y vuela.
+        d.style.opacity = '0.8';
+        d.style.transform = 'translateZ(0)';
         d.style.zIndex = '9998';
     }
 
