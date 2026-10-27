@@ -39,7 +39,7 @@
     const ROOM = params.get('mp');
     if (!ROOM) return; // un jugador: no hacer nada
 
-    const BRIDGE_VERSION = 'v6-render-nativo';
+    const BRIDGE_VERSION = 'v7-nativo-merge';
     try { console.log('[MP] guard-bridge ' + BRIDGE_VERSION); } catch (e) { }
 
     const MY_NAME = params.get('name') || 'Guardia';
@@ -218,6 +218,47 @@
         canvas.dispatchEvent(mk('pointerup', 0));
     }
 
+    // HOVER sintético (v6.5): el juego original BAJA el monitor al pasar el
+    // ratón por la pestaña inferior — el runtime escucha pointermove ahí.
+    // Bajar el monitor por el pipeline REAL de input es lo que dispara el
+    // kill nativo con fiabilidad (E2E: subir clic + hover pestaña → kill).
+    function gameHover(fx, fy) {
+        const a = app();
+        if (!a) return;
+        const rect = a.canvas.getBoundingClientRect();
+        const cx = rect.left + fx * (rect.width / a.gaCxWin);
+        const cy = rect.top + fy * (rect.height / a.gaCyWin);
+        const mk = (x, y) => new PointerEvent('pointermove', {
+            bubbles: true, cancelable: true, composed: true,
+            clientX: x, clientY: y, button: 0, buttons: 0,
+            pointerId: 1, pointerType: 'mouse', isPrimary: true, view: window
+        });
+        a.canvas.dispatchEvent(mk(cx - 5, cy));
+        a.canvas.dispatchEvent(mk(cx + 5, cy));
+        a.canvas.dispatchEvent(mk(cx, cy));
+    }
+
+    // ARMADO NATIVO DEL HELPER DE ATAQUE (v6.1): el juego ejecuta su cadena
+    // de muerte al bajar el monitor si el helper 'ready to attack left/right'
+    // está VISIBLE. El asalto de la IA propia lo activa; los writes externos
+    // no. Se arma al asomarse al marco y se desarma al retirarse/salir.
+    const ATTACK_HELPER = { bonnie: 'ready to attack left', chica: 'ready to attack right' };
+
+    function setHelperVisible(role, visible) {
+        const name = ATTACK_HELPER[role];
+        if (!name) return;                 // freddy usa el kill de apagón
+        const o = find(name);
+        if (!o || !o.ros) return;
+        const VIS = 0x20, HID = 0x1, INACT = 0x2;
+        const cur = o.ros.rsFlags;
+        const want = visible ? ((cur | VIS) & ~HID & ~INACT) : (cur & ~VIS);
+        if (cur !== want) {
+            o.ros.rsFlags = want;
+            if (o.roc) o.roc.rcChanged = true;
+            log((visible ? 'ARMO ' : 'DESARMO ') + name);
+        }
+    }
+
     // ---------------------------------------------------------
     // Estado
     // ---------------------------------------------------------
@@ -387,30 +428,39 @@
     //   si el guardia cierra durante la irrupción (o en el margen) → rebote.
     const BURST_MS = 1200;
 
-    // Forzar el kill: el juego original mata al guardia con la TRANSICIÓN
-    // "monitor baja" (viewing: ≠0 → 0) cuando hay un animatrónico en el
-    // marco. La escritura directa funciona pero la ráfaga de estática del
-    // juego reescribe 'viewing' y puede anular una transición concreta, así
-    // que se repite el ciclo (arriba 1.2s → abajo → esperar) hasta que el
-    // juego ejecute el kill (frame ≠ 2). Cada 1→0 es una transición real.
+    // Forzar el kill: el juego mata al guardia con la TRANSICIÓN real
+    // "monitor baja" (hover en la pestaña inferior, pipeline de input del
+    // juego) con un animatrónico en el marco + helper armado. Se mezcla
+    // el hover REAL (v6.5, verificadísimo E2E) con la escritura directa
+    // del contador como respaldo, y se repite hasta que el kill llega.
     function forceMonitorCycle() {
         let n = 0;
         (function cycle() {
             const a = app();
-            if (!a || a.currentFrame !== 2 || n++ >= 6) return;  // murió o límite
+            if (!a || a.currentFrame !== 2 || n++ >= 8) return;  // murió o límite
             const v = rs('viewing');
-            if (v == null || v === 0) {
-                setRS('viewing', 1);                 // monitor arriba
-                setTimeout(() => {
-                    const a2 = app();
-                    if (a2 && a2.currentFrame === 2) setRS('viewing', 0);  // abajo
-                    setTimeout(cycle, 2000);
-                }, 1200);
+            if (v === 0 || v == null) {
+                setRS('viewing', 1);                 // subir (write: no dispara kill)
+                setTimeout(cycle, 1600);
             } else {
-                setRS('viewing', 0);                 // estaba arriba: bajar ya
-                setTimeout(cycle, 2000);
+                gameHover(640, 700);                 // BAJAR por el pipeline REAL
+                setRS('viewing', 0);                 // respaldo: asegurar el valor
+                setTimeout(cycle, 2400);
             }
         })();
+    }
+
+    // RESPALDO DETERMINISTA (v6.5): si pasados DEADLINE_MS el juego no ha
+    // ejecutado el kill por su cuenta (ciclos de monitor / apagón), se
+    // salta directo al frame de muerte — verificado: nextFrame=3 +
+    // startTheFrame() → jumpscare + game over. Nunca se queda colgado.
+    const KILL_DEADLINE_MS = 25000;
+    function killFallback() {
+        const a = app();
+        if (!a || a.currentFrame !== 2) return false;
+        try { a.nextFrame = 3; a.startTheFrame(); } catch (e) { return false; }
+        log('kill de RESPALDO: salto directo al frame de muerte');
+        return true;
     }
     // ---------------------------------------------------------
     // KILL NATIVO DE FREDDY (v6): su cadena de muerte en FNAF1 es el
@@ -450,6 +500,8 @@
                 p.officeKillAt = 0;
                 p.killForced = false;
                 p.doorSince = 0;
+                p.killDeadline = 0;
+                setHelperVisible(role, false);
             } else if (atDoor && p.burstUntil) {
                 // irrupción en curso del jugador: resolver al terminar
                 if (now < p.burstUntil) return;
@@ -479,10 +531,12 @@
                 if (stillClosed) {
                     // se salvó justo: no matar — la retracción lo devuelve
                     p.burstDoneAt = 0;
+                    setHelperVisible(role, false);
                     return;
                 }
                 p.killForced = true;
                 p.officeKillAt = now;
+                p.killDeadline = now + (role === 'freddy' ? 45000 : KILL_DEADLINE_MS);
                 if (role === 'freddy') {
                     // Freddy NO tiene kill por contadores: su muerte canónica
                     // es el APAGÓN (secuencia original del juego, ~15-25s de
@@ -494,6 +548,9 @@
                     log('ciclo de monitor forzado — el juego ejecuta el kill original');
                 }
             } else if (atDoor && !p.burstUntil && !p.burstDoneAt) {
+                // en el marco sin irrumpir aún: mantener el helper armado
+                // (el juego tiende a re-ocultarlo con sus propios eventos)
+                setHelperVisible(role, true);
                 // LÍMITE DE TIEMPO EN LA PUERTA (anti-camping): si se queda
                 // plantado en el marco sin irrumpir, el host lo retira a la
                 // esquina. "No deben poder estar mucho tiempo en la puerta".
@@ -501,8 +558,17 @@
                     p.doorSince = now;
                 } else if (now - p.doorSince > DOOR_MAX_MS) {
                     p.doorSince = 0;
+                    setHelperVisible(role, false);
                     retractFromDoor(role, 'tiempo agotado en la puerta', 'corner');
                     log(role.toUpperCase() + ' retirado de la puerta por tiempo (anti-camping)');
+                }
+            }
+            // RESPALDO del kill: deadline agotado sin muerte → salto directo
+            // al frame de muerte (nunca dejar al guardia vivo por bug).
+            if (p.killForced && p.killDeadline && now >= p.killDeadline) {
+                p.killDeadline = 0;
+                if (killFallback()) {
+                    p.officeKillAt = p.officeKillAt || now;
                 }
             }
         });
@@ -544,6 +610,7 @@
         host.on('ability', (m, entry) => handleAbility(m, entry));
         host.on('__disconnect', (entry) => {
             if (entry && entry.role && state.players[entry.role]) {
+                setHelperVisible(entry.role, false);   // evitar el kill fantasma
                 restoreAI(entry.role);
                 delete state.players[entry.role];
                 log(entry.role + ' desconectado — control a la IA');
@@ -677,6 +744,7 @@
                 p.officeKillAt = 0;
                 p.killForced = false;
                 p.doorSince = 0;
+                p.killDeadline = 0;
             });
             host && host.broadcast({ t: 'phase', p: 'night', night: state.night });
             log('Noche ' + state.night + ' iniciada');
@@ -777,6 +845,8 @@
             p.roomChangedAt = performance.now();
             try { entry.conn.send(JSON.stringify({ t: 'moveOk', room })); } catch (e) { }
             host.broadcast({ t: 'anim', role, room, from: current });
+            // risa original de Freddy al moverse (canon FNAF1)
+            if (role === 'freddy') playSfx('freddy_laugh.mp3', 0.4);
             // re-render NATIVO de la sala que el guardia esté mirando
             pulseGuardCam([room, current]);
             log(role + ' → ' + room);
@@ -899,6 +969,8 @@
         p.doorAssault = true;
         p.burstUntil = 0;
         p.doorSince = 0;
+        p.killDeadline = 0;
+        setHelperVisible(role, true);      // armar el helper nativo del kill
         // pista sutil para el guardia: pasos/golpecito en el marco
         playSfx('knock.mp3', 0.3);
         try { entry.conn.send(JSON.stringify({ t: 'atk', ok: true })); } catch (e) { }
@@ -926,6 +998,8 @@
         p.officeKillAt = 0;
         p.killForced = false;
         p.doorSince = 0;
+        p.killDeadline = 0;
+        setHelperVisible(role, false);     // desarmar el helper (fix kill fantasma)
         try { p.conn.send(JSON.stringify({ t: 'doorOut', room: target, why: why || '' })); } catch (e) { }
         try { p.conn.send(JSON.stringify({ t: 'moveOk', room: target })); } catch (e) { }
         host.broadcast({ t: 'anim', role, room: target });
