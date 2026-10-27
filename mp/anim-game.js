@@ -231,6 +231,12 @@
         glitch.classList.add('on');
         setTimeout(() => glitch.classList.remove('on'), 320);
         playLocal('footstep.mp3', 0.4);
+        // la cocina es SOLO AUDIO en el juego original: el guardia nunca
+        // te ve aquí, solo te oye (cacerolas). Se lo avisamos al jugador.
+        if (room === '6' && Date.now() - (cli._kitchenToastAt || 0) > 15000) {
+            cli._kitchenToastAt = Date.now();
+            toast('COCINA sin cámara: el guardia solo puede OÍRTE aquí.', 3600);
+        }
         renderNav();
     }
 
@@ -806,6 +812,12 @@
             cli.night = m.night || 1;
             if (m.room) { cli.room = m.room; }
             const inNight = m.phase === 'night';
+            if (inNight) {
+                // reconexión a mitad de noche: limpiar TODO estado de puerta
+                // heredado de la noche/anterior conexión (bug: el cliente
+                // quedaba pegado en "DENTRO DE LA OFICINA" para siempre)
+                resetDoorState();
+            }
             setPhase(inNight ? 'night' : 'wait');
             if (!inNight) {
                 showScreen(
@@ -818,8 +830,8 @@
         });
         net.on('state', (m) => {
             cli.state = m.s;
-            // late-join: si la noche ya empezó, entrar
-            if (m.s && m.s.phase === 'night' && cli.phase !== 'night') setPhase('night');
+            // late-join: si la noche ya empezó, entrar (con estado limpio)
+            if (m.s && m.s.phase === 'night' && cli.phase !== 'night') { resetDoorState(); setPhase('night'); }
             updateHud(m.s);
             syncPosition(m.s);
         });

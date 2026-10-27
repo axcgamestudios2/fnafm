@@ -22,7 +22,7 @@
     const ROOM = params.get('mp');
     if (!ROOM) return; // un jugador: no hacer nada
 
-    const BRIDGE_VERSION = 'v5-kill-transicion';
+    const BRIDGE_VERSION = 'v6.5-kill-respaldo';
     try { console.log('[MP] guard-bridge ' + BRIDGE_VERSION); } catch (e) { }
 
     const MY_NAME = params.get('name') || 'Guardia';
@@ -57,64 +57,116 @@
     };
     const DOOR_IMG = { L: { open: 103, closed: 102 }, R: { open: 119, closed: 118 } };
 
-    // Puntos de render por vista ("you" spots, verificados empíricamente):
-    // teletransportar el marcador de un animatrónico aquí lo RENDERIZA en la
-    // imagen de esa cámara (comprobado con diff de píxeles anti-ruido).
-    const YOU_SPOT = {
-        '1A': [983, 353], '1B': [1283, 409], '1C': [1251, 487], '5': [1159, 436],
-        '3': [899, 585], '2A': [1207, 603], '2B': [1166, 643], '4A': [1229, 604],
-        '4B': [1189, 644], '6': [1243, 568], '7': [1214, 437]
-    };
-    const PARK_SPOT = [2000, 2000]; // invisible en todas las vistas
-    const MARKER = { bonnie: 'bonnie', chica: 'chica', freddy: 'freddy bear' };
-    // Botones de sala: puntos de espera del juego original (tablet abajo)
-    const BUTTON_SPOT = {
-        '1A': [983, 353], '1B': [963, 409], '1C': [931, 487], '5': [857, 436],
-        '3': [899, 585], '2A': [983, 603], '2B': [983, 643], '4A': [1089, 604],
-        '4B': [1089, 644], '6': [1186, 568], '7': [1195, 437]
-    };
-    // salas de esquina: desde ahí se ataca (el juego camina al marcador a la
-    // puerta y ejecuta la muerte original)
-    const CORNER_ROOMS = ['2B', '4B'];
+    // (v6) hallazgo clave de ingeniería inversa: los "you spots" NO
+    // renderizan nada — los marcadores internos viven ocultos en otra
+    // capa y las cámaras pintan a los animatrónicos con los FRAMES de
+    // los objetos de cámara, que solo cambian con la IA nativa del
+    // juego. Por eso el guardia no veía moverse a los jugadores.
 
     // ---------------------------------------------------------
-    // Animación de CAMINATA de los marcadores en las cámaras:
-    // en vez de teletransportarse, el animatrónico entra caminando
-    // hasta su punto de render con un balanceo de pasos (bob).
+    // RENDERIZADO DE JUGADORES EN CÁMARAS (v6):
+    // el juego original SOLO cambia las imágenes de las cámaras
+    // ('1B dining area', 'cam 4B', ...) cuando la IA mueve a un
+    // animatrónico con sus propios eventos. Con los contadores
+    // escritos desde fuera (jugador) esos eventos NUNCA corren y el
+    // guardia no ve a nadie moverse (bug: "no se ve en la cámara que
+    // te moviste" / "la posición de Freddy en las cámaras"). Los
+    // marcadores internos ('freddy bear', etc.) viven OCULTOS en otra
+    // capa y jamás se dibujan en las cámaras. Solución: overlay DOM
+    // propio por sala, con la pose original de cada animatrónico.
     // ---------------------------------------------------------
-    const markerAnim = {};   // role -> {fromX, fromY, tx, ty, start, dur}
-    let lastViewing = null;
-    let viewChangedAt = 0;
-    const WALK_MS = 950;     // debe coincidir con la caminata del cliente animatrónico
+    const CAM_ROOM = VIEWING_CAM;          // viewing -> sala
+    // [x%, y% del canvas, altura %, variante] por sala y rol.
+    // variante: 'stand' = cuerpo completo de pie (assets/cams/<rol>-stand.png,
+    // generado con IA + recorte por luminancia) | 'face' = cara en primer
+    // plano (assets/cams/<rol>.png, viñeta del jumpscare original).
+    // y más arriba = más lejos; h pequeño = figura lejana.
+    const CAM_ANCHOR = {
+        '1A': { bonnie: [35, 20, 58, 'stand'], chica: [63, 20, 58, 'stand'], freddy: [49, 18, 64, 'stand'] },
+        '1B': { bonnie: [46, 26, 34, 'stand'], chica: [46, 26, 34, 'stand'], freddy: [47, 27, 36, 'stand'] },
+        '5':  { bonnie: [44, 14, 66, 'face'] },
+        '3':  { bonnie: [48, 12, 70, 'face'] },
+        '2A': { bonnie: [47, 20, 40, 'stand'] },
+        '2B': { bonnie: [50, 8, 80, 'face'] },
+        '7':  { chica: [50, 22, 34, 'stand'], freddy: [50, 22, 36, 'stand'] },
+        '6':  { /* cocina: SOLO AUDIO en el original: nunca visible */ },
+        '4A': { chica: [50, 20, 40, 'stand'], freddy: [50, 19, 38, 'stand'] },
+        '4B': { chica: [52, 12, 66, 'face'], freddy: [50, 6, 98, 'face'] }
+    };
+    const CAM_FILTER = {
+        '1B': 'brightness(.45) contrast(1.18) saturate(.8)',
+        '4A': 'brightness(.38) contrast(1.25) saturate(.65)',
+        '4B': 'brightness(.85) contrast(1.08)',
+        '7':  'brightness(.5) contrast(1.2)',
+        '5':  'brightness(.55) contrast(1.15)',
+        default: 'brightness(.5) contrast(1.15) saturate(.85)'
+    };
 
-    function stepMarkers(now) {
-        // seguimiento de cambios de cámara (para decidir teletransporte vs caminata)
+    function updateCamViews() {
+        const a = app();
+        if (!a || !a.canvas) return;
+        const id = 'mp-camview';
+        let box = document.getElementById(id);
         const viewing = rs('viewing');
-        if (viewing !== lastViewing) { lastViewing = viewing; viewChangedAt = now; }
-        Object.keys(markerAnim).forEach(role => {
-            const a = markerAnim[role];
-            const o = find(MARKER[role]);
-            if (!o || !o.roc) { delete markerAnim[role]; return; }
-            const k = Math.min(1, (now - a.start) / a.dur);
-            let x = a.fromX + (a.tx - a.fromX) * k;
-            let y = a.fromY + (a.ty - a.fromY) * k;
-            if (k < 1) {
-                // balanceo de pasos: 2.5 pasos por segundo
-                y += Math.sin(now / 62) * 4.5;
-            }
-            o.hoX = x;
-            o.hoY = y;
-            o.roc.rcChanged = true;
-            if (k >= 1) delete markerAnim[role];
-        });
-    }
-
-    function startMarkerLoop() {
-        function tick(t) {
-            try { stepMarkers(t); } catch (e) { }
-            requestAnimationFrame(tick);
+        if (state.phase !== 'night' || !viewing || viewing === 0) {
+            if (box) box.remove();
+            return;
         }
-        requestAnimationFrame(tick);
+        const room = CAM_ROOM[viewing] || null;
+        if (!room) { if (box) box.remove(); return; }
+        const rect = a.canvas.getBoundingClientRect();
+        if (!box) {
+            box = document.createElement('div');
+            box.id = id;
+            box.style.cssText = 'position:fixed;z-index:99990;pointer-events:none;overflow:hidden;';
+            document.body.appendChild(box);
+        }
+        box.style.left = rect.left + 'px';
+        box.style.top = rect.top + 'px';
+        box.style.width = rect.width + 'px';
+        box.style.height = rect.height + 'px';
+
+        // quién debe verse en esta sala
+        const present = [];
+        const now = performance.now();
+        Object.keys(state.players).forEach(role => {
+            const p = state.players[role];
+            if (!p) return;
+            if (role === 'foxy') {
+                const fp = rs('fox progress');
+                if (room === '1C' && fp >= 1 && fp <= 3) {
+                    const h = [0, 24, 36, 50][fp] || 24;
+                    present.push({ role, x: 52, y: 26, h, filter: 'brightness(' + (0.4 + fp * 0.12) + ') contrast(1.15)', walkIn: false, sprite: 'foxy-stand' });
+                } else if (room === '2A' && fp === 4) {
+                    present.push({ role, x: 47, y: 12, h: 74, filter: 'brightness(.4) contrast(1.3) blur(1px)', run: true, walkIn: false, sprite: 'foxy-run' });
+                }
+                return;
+            }
+            if (p.room !== room) return;
+            const idx = rs(ACTIVITY_COUNTER[role]);
+            if (idx != null && idx >= 7) return;   // en la puerta: lo pinta la vista de puerta
+            const anchor = CAM_ANCHOR[room] && CAM_ANCHOR[room][role];
+            if (!anchor) return;
+            present.push({
+                role, x: anchor[0], y: anchor[1], h: anchor[2],
+                filter: CAM_FILTER[room] || CAM_FILTER.default,
+                walkIn: p.roomChangedAt && (now - p.roomChangedAt < 1100),
+                walkPlayed: p.walkPlayed,
+                sprite: (anchor[3] === 'face' ? role : role + '-stand')
+            });
+            if (p.roomChangedAt && (now - p.roomChangedAt < 1100)) p.walkPlayed = p.room;
+        });
+
+        const html = present.map((q, i) => {
+            const off = (i % 2 === 0) ? -5 : 5;
+            const anim =
+                (q.run ? 'animation:mpfoxrun .55s infinite alternate;' : '') +
+                (q.walkIn && !q.walkPlayed ? 'animation:mpwalkin .95s ease-out;' : '');
+            return '<img src="' + MP_URL + 'assets/cams/' + q.sprite + '.png" ' +
+                'style="position:absolute;left:' + (q.x + off) + '%;top:' + (q.y + (i > 1 ? -6 : 0)) + '%;height:' + q.h + '%;' +
+                'transform:translateX(-50%);object-fit:contain;object-position:bottom center;filter:' + q.filter + ';' + anim + '">';
+        }).join('');
+        if (box.__h !== html) { box.__h = html; box.innerHTML = html; }
     }
 
     // ---------------------------------------------------------
@@ -182,7 +234,9 @@
     // estilos de overlays
     (function injectStyle() {
         const st = document.createElement('style');
-        st.textContent = '@keyframes mpshake{0%{transform:translate(0,0) scale(1.02)}25%{transform:translate(-14px,9px) scale(1.05)}50%{transform:translate(11px,-13px) scale(1.03)}75%{transform:translate(-9px,-8px) scale(1.06)}100%{transform:translate(13px,10px) scale(1.02)}}';
+        st.textContent = '@keyframes mpshake{0%{transform:translate(0,0) scale(1.02)}25%{transform:translate(-14px,9px) scale(1.05)}50%{transform:translate(11px,-13px) scale(1.03)}75%{transform:translate(-9px,-8px) scale(1.06)}100%{transform:translate(13px,10px) scale(1.02)}}' +
+            '@keyframes mpwalkin{0%{opacity:0;transform:translateX(-160%) translateY(4%)}55%{opacity:.9}100%{opacity:1;transform:translateX(-50%) translateY(0)}}' +
+            '@keyframes mpfoxrun{0%{transform:translateX(-50%) scale(1)}100%{transform:translateX(-50%) scale(1.07,.94)}}';
         document.head.appendChild(st);
     })();
 
@@ -217,6 +271,26 @@
         });
         canvas.dispatchEvent(mk('pointerdown', 1));
         canvas.dispatchEvent(mk('pointerup', 0));
+    }
+
+    // HOVER sintético: el FNAF original baja el monitor AL PASAR EL RATÓN
+    // por la pestaña inferior (no con clic). El runtime escucha pointermove
+    // (Runtime.js línea ~16394), así que un pointermove sintético ahí baja
+    // el monitor de verdad — verificado: up-click + hover(640,700) -> KILL.
+    function gameHover(fx, fy) {
+        const a = app();
+        if (!a) return;
+        const rect = a.canvas.getBoundingClientRect();
+        const cx = rect.left + fx * (rect.width / a.gaCxWin);
+        const cy = rect.top + fy * (rect.height / a.gaCyWin);
+        const mk = (x, y) => new PointerEvent('pointermove', {
+            bubbles: true, cancelable: true, composed: true,
+            clientX: x, clientY: y, button: 0, buttons: 0,
+            pointerId: 1, pointerType: 'mouse', isPrimary: true, view: window
+        });
+        a.canvas.dispatchEvent(mk(cx - 5, cy));
+        a.canvas.dispatchEvent(mk(cx + 5, cy));
+        a.canvas.dispatchEvent(mk(cx, cy));
     }
 
     // ---------------------------------------------------------
@@ -266,55 +340,11 @@
         }, 500);
     })();
 
-    // Coloca los marcadores de los animatrónicos con jugador según la vista
-    // actual del guardia:
-    //  - sala siendo vista → punto de render (se ve en la cámara, verificado)
-    //  - esquina (2B/4B) → su botón: el ataque del juego ORIGINAL necesita
-    //    arrancar desde ahí para caminar a la puerta y ejecutar el kill
-    //  - resto → lejos (invisible)
-    // Si el animatrónico LLEGA a la sala que el guardia está viendo, entra
-    // CAMINANDO desde un lateral (animación) en vez de teletransportarse.
-    // Durante un ataque (counter>=7) y para Foxy, manda la lógica del juego.
-    function applyMarkers() {
-        const now = performance.now();
-        const viewing = rs('viewing');
-        const viewedRoom = VIEWING_CAM[viewing] || null;
-        const sameViewForAwhile = (now - viewChangedAt) > 400;
-        Object.keys(state.players).forEach(role => {
-            if (role === 'foxy') return; // Foxy: fox progress + lógica propia
-            const p = state.players[role];
-            if (!p.room) return;
-            const idx = rs(ACTIVITY_COUNTER[role]);
-            if (idx !== null && idx >= 7) { delete markerAnim[role]; return; } // en la puerta/ataque: el juego controla
-            if (markerAnim[role]) return; // está caminando: no interrumpir
-            const o = find(MARKER[role]);
-            if (!o || !o.roc) return;
-            let spot;
-            if (viewedRoom === p.room && YOU_SPOT[p.room]) {
-                spot = YOU_SPOT[p.room];
-                // ¿acaba de entrar a esta sala mientras el guardia la mira? → caminar
-                const justArrived = p.roomChangedAt && (now - p.roomChangedAt < 1500) && p.walkPlayed !== p.room;
-                if (sameViewForAwhile && justArrived) {
-                    p.walkPlayed = p.room;
-                    markerAnim[role] = {
-                        fromX: spot[0] - 250, fromY: spot[1] - 46,
-                        tx: spot[0], ty: spot[1],
-                        start: now, dur: WALK_MS
-                    };
-                    log(role + ' entra caminando a ' + p.room);
-                    return;
-                }
-                p.walkPlayed = p.room;
-            } else if (CORNER_ROOMS.includes(p.room)) {
-                spot = BUTTON_SPOT[p.room];
-            } else {
-                spot = PARK_SPOT;
-            }
-            o.hoX = spot[0];
-            o.hoY = spot[1];
-            o.roc.rcChanged = true;
-        });
-    }
+    // (v6) applyMarkers eliminado: el juego reposiciona sus marcadores
+    // internos solo con su propia IA; teletransportarlos no renderiza
+    // nada en cámaras (viven ocultos en otra capa) y solo pelea con la
+    // lógica propia del juego. El renderizado de jugadores ahora es el
+    // overlay DOM updateCamViews().
 
     function readState() {
         const a = app();
@@ -346,6 +376,30 @@
     // Red
     // ---------------------------------------------------------
     let host = null;
+
+    // ---------------------------------------------------------
+    // ARMADO NATIVO DEL KILL (v6.1): el juego solo ejecuta su cadena de
+    // muerte (bajar monitor -> jumpscare original) si el helper
+    // 'ready to attack left/right' está VISIBLE. El asalto de la IA
+    // propia del juego lo activa; los writes externos del contador NO.
+    // E2E: rtl visible + ba=7 + un ciclo de monitor -> frame 3 (muerte).
+    // ---------------------------------------------------------
+    const ATTACK_HELPER = { bonnie: 'ready to attack left', chica: 'ready to attack right' };
+
+    function setHelperVisible(role, visible) {
+        const name = ATTACK_HELPER[role];
+        if (!name) return;                 // freddy usa el kill de apagón
+        const o = find(name);
+        if (!o || !o.ros) return;
+        const VIS = 0x20, HID = 0x1, INACT = 0x2;
+        const cur = o.ros.rsFlags;
+        const want = visible ? ((cur | VIS) & ~HID & ~INACT) : (cur & ~VIS);
+        if (cur !== want) {
+            o.ros.rsFlags = want;
+            if (o.roc) o.roc.rcChanged = true;
+            log((visible ? 'ARMO ' : 'DESARMO ') + name);
+        }
+    }
 
     // ---------------------------------------------------------
     // VISTA DE PUERTA/PASILLO CON LA LUZ (como el juego original):
@@ -412,14 +466,17 @@
             d.style.top = (rect.top + rect.height * 0.12) + 'px';
             d.style.height = (rect.height * 0.82) + 'px';
             // estilo según proximidad (más lejos = más pequeño y apagado)
-            const base = 'flex:1;min-width:0;object-fit:cover;object-position:top center;';
+            // sprites: viñeta de la cara (assets/cams/<rol>.png, transparencia
+            // suave) — antes se usaba la escena completa del jumpscare y la
+            // puerta se veía mal ("su posición está mal hecha")
+            const base = 'flex:1;min-width:0;object-fit:contain;object-position:bottom center;';
             const byProx = {
-                3: base + 'height:100%;filter:brightness(.92) contrast(1.05);',
-                2: base + 'height:86%;align-self:flex-end;filter:brightness(.72) contrast(1.12) saturate(.85);margin:0 8%;',
-                1: base + 'height:46%;align-self:flex-end;filter:brightness(.45) contrast(1.25) saturate(.6);margin:0 16%;opacity:.8;' +
+                3: base + 'height:100%;filter:brightness(.9) contrast(1.1);',
+                2: base + 'height:84%;align-self:flex-end;filter:brightness(.7) contrast(1.12) saturate(.85);margin:0 8%;',
+                1: base + 'height:46%;align-self:flex-end;filter:brightness(.45) contrast(1.25) saturate(.6);margin:0 16%;opacity:.85;' +
                     (best.run ? 'transform:scaleX(1.12);' : '')
             };
-            const html = '<img src="' + MP_URL + 'assets/jumpscares/' + best.role + '.png" ' +
+            const html = '<img src="' + MP_URL + 'assets/cams/' + best.role + '.png" ' +
                 'style="' + byProx[best.prox] + '">';
             if (d.__h !== html) { d.__h = html; d.innerHTML = html; }
         });
@@ -437,29 +494,25 @@
     //   si el guardia cierra durante la irrupción (o en el margen) → rebote.
     const BURST_MS = 1200;
 
-    // Forzar el kill: el juego original mata al guardia con la TRANSICIÓN
-    // "monitor baja" (viewing: ≠0 → 0) cuando hay un animatrónico en el
-    // marco. La escritura directa funciona pero la ráfaga de estática del
-    // juego reescribe 'viewing' y puede anular una transición concreta, así
-    // que se repite el ciclo (arriba 1.2s → abajo → esperar) hasta que el
-    // juego ejecute el kill (frame ≠ 2). Cada 1→0 es una transición real.
+    // Forzar el kill: el juego mata al guardia al BAJAR el monitor con un
+    // animatrónico en el marco. HALLAZGO v6.2 (E2E): las escrituras directas
+    // del contador 'viewing' NO generan la transición REAL del tablet del
+    // juego y el kill no dispara; los CICLOS REALES por el pipeline de
+    // input sí (verificado E2E: clic subir en (442,691) + HOVER en la
+    // pestaña (640,700) -> kill instantáneo). Además el juego necesita
+    // varios segundos tras el armado del helper (v6.1: retraso p.killAt).
     function forceMonitorCycle() {
         let n = 0;
         (function cycle() {
             const a = app();
-            if (!a || a.currentFrame !== 2 || n++ >= 6) return;  // murió o límite
-            const v = rs('viewing');
-            if (v == null || v === 0) {
-                setRS('viewing', 1);                 // monitor arriba
-                setTimeout(() => {
-                    const a2 = app();
-                    if (a2 && a2.currentFrame === 2) setRS('viewing', 0);  // abajo
-                    setTimeout(cycle, 2000);
-                }, 1200);
-            } else {
-                setRS('viewing', 0);                 // estaba arriba: bajar ya
-                setTimeout(cycle, 2000);
-            }
+            if (!a || a.currentFrame !== 2 || n++ >= 8) return;  // murió o límite
+            gameClick(442, 691);                    // subir monitor (clic real)
+            setTimeout(() => {
+                const a2 = app();
+                if (!a2 || a2.currentFrame !== 2) return;
+                gameHover(640, 700);                // hover pestaña: BAJAR -> kill
+                setTimeout(cycle, 2600);
+            }, 1600);
         })();
     }
     function watchDoorAssaults() {
@@ -477,13 +530,19 @@
                 }
             } else if (idx != null && idx < 7) {
                 // el juego/retirada lo sacó de la puerta
+                setHelperVisible(role, false);
                 p.doorAssault = false;
                 p.burstUntil = 0;
                 p.burstDoneAt = 0;
                 p.officeKillAt = 0;
                 p.killForced = false;
+                p.killAt = 0;
+                p.killDeadline = 0;
+                p.killCycling = false;
             } else if (idx === 7 && p.burstUntil) {
                 // irrupción en curso del jugador: resolver al terminar
+                // (mantener el helper armado: el juego lo re-esconde)
+                setHelperVisible(role, true);
                 if (now < p.burstUntil) return;
                 p.burstUntil = 0;
                 const doorClosed = (role === 'bonnie')
@@ -503,6 +562,7 @@
                 }
             } else if (idx === 7 && p.burstDoneAt && !p.killForced) {
                 // margen de gracia para que el guardia cierre la puerta
+                setHelperVisible(role, true);
                 if (now - p.burstDoneAt < 1500) return;
                 const stillClosed = (role === 'bonnie')
                     ? (img('left door') === DOOR_IMG.L.closed)
@@ -514,8 +574,53 @@
                 }
                 p.killForced = true;
                 p.officeKillAt = now;
-                forceMonitorCycle();
-                log('ciclo de monitor forzado — el juego ejecuta el kill original');
+                if (role === 'freddy') {
+                    // HALLAZGO (v6): para FREDDY no existe kill nativo por
+                    // contadores — el 8 solo dispara su cadena con el asalto
+                    // de su PROPIA IA, y los ciclos de monitor no le afectan
+                    // (verificado: fa=8 inerte, ciclos inútiles). Su kill
+                    // ORIGINAL y 100% fiable es el del APAGÓN: el juego
+                    // apaga la oficina, suena la marcha del Toreador y
+                    // Freddy ejecuta su jumpscare — exactamente como en el
+                    // juego original. E2E verificado end-to-end.
+                    setRS('freddy activity', 8);
+                    setRS('power left', 0);
+                    setRS('power left 2', 0);
+                    log('FREDDY DENTRO — apagón: el juego ejecuta el kill original de Freddy');
+                } else {
+                    // BONNIE/CHICA: el juego necesita varios SEGUNDOS tras el
+                    // armado del helper para progresar su cadena de asalto
+                    // interna (formación rtl/gyl) antes de que la transición
+                    // de monitor ejecute el kill (hallazgo v6.1). Plan:
+                    //   +12s  -> ciclos de monitor (kill nativo si el juego
+                    //            responde — a menudo basta con que el guardia
+                    //            real baje su propio monitor, armado ya el helper)
+                    //   +54s  -> RESPALDO determinista: salto directo al frame
+                    //            de muerte (verificado: nextFrame=3 +
+                    //            startTheFrame() -> jumpscare + game over)
+                    p.killAt = now + 12000;
+                    p.killDeadline = now + 54000;
+                    log(role.toUpperCase() + ' DENTRO — kill original en camino (armado nativo)');
+                }
+            } else if (idx === 7) {
+                // en el marco sin irrumpir aún: mantener el helper armado
+                // (el juego tiende a re-ocultarlo con sus propios eventos)
+                setHelperVisible(role, true);
+                if (p.killForced && !p.killCycling && now >= (p.killAt || 0)) {
+                    p.killCycling = true;
+                    forceMonitorCycle();
+                    log('kill nativo: ciclos de monitor (el juego está armado)');
+                }
+                if (p.killForced && now >= (p.killDeadline || 0)) {
+                    // RESPALDO: el juego no respondió a los ciclos — salto
+                    // directo al frame de muerte (determinista, verificado)
+                    const a = app();
+                    if (a && a.currentFrame === 2) {
+                        try { a.nextFrame = 3; a.startTheFrame(); } catch (e) { }
+                        log('kill de respaldo: salto al frame de muerte');
+                    }
+                    p.killDeadline = 0;
+                }
             }
         });
     }
@@ -556,6 +661,10 @@
         host.on('ability', (m, entry) => handleAbility(m, entry));
         host.on('__disconnect', (entry) => {
             if (entry && entry.role && state.players[entry.role]) {
+                // desarmar el helper de puerta: si queda visible tras la
+                // desconexión, el juego mataría al guardia con un asalto
+                // FANTASMA (bug real detectado en E2E)
+                setHelperVisible(entry.role, false);
                 restoreAI(entry.role);
                 delete state.players[entry.role];
                 log(entry.role + ' desconectado — control a la IA');
@@ -579,7 +688,6 @@
     }
 
     function startLoops() {
-        startMarkerLoop();   // caminata suave de marcadores (60 fps)
         setInterval(() => {
             const a = app();
             if (!a) return;
@@ -598,11 +706,12 @@
             host.broadcast({ t: 'state', s });
             updateBadge(s);
             if (state.phase === 'night') {
-                applyMarkers();
+                updateCamViews();
                 watchDoorAssaults();
                 updateDoorViews();
             } else {
-                updateDoorViews();   // limpia overlays fuera de la noche
+                updateCamViews();   // limpia overlays fuera de la noche
+                updateDoorViews();
             }
         }, 100);
 
@@ -690,7 +799,9 @@
                 p.burstDoneAt = 0;
                 p.officeKillAt = 0;
                 p.killForced = false;
-                delete markerAnim[role];
+                p.killAt = 0;
+                p.killDeadline = 0;
+                p.killCycling = false;
             });
             host && host.broadcast({ t: 'phase', p: 'night', night: state.night });
             log('Noche ' + state.night + ' iniciada');
@@ -790,9 +901,11 @@
             p.lastMove = now;
             p.roomChangedAt = performance.now();
             p.walkPlayed = null;
-            applyMarkers();
             try { entry.conn.send(JSON.stringify({ t: 'moveOk', room })); } catch (e) { }
             host.broadcast({ t: 'anim', role, room, from: current });
+            // fidelidad al original: la risa de Freddy suena en cada paso
+            // que da (el guardia la oye desde la oficina)
+            if (role === 'freddy') playSfx('freddy_laugh.mp3', 0.4);
             log(role + ' → ' + room);
         }
     }
@@ -876,6 +989,8 @@
             return;
         }
         setRS(ACTIVITY_COUNTER[role], 7);
+        // armado nativo: el juego solo mata con su helper visible (v6.1)
+        setHelperVisible(role, true);
         p.attackAt = now;
         p.roomChangedAt = 0;
         p.doorAssault = true;
@@ -896,6 +1011,7 @@
         //       'dining' (rebote/castigo: vuelve al comedor como el original)
         const corner = (role === 'bonnie') ? '2B' : '4B';
         const target = (dest === 'corner') ? corner : '1B';
+        setHelperVisible(role, false);
         setRS(ACTIVITY_COUNTER[role], ROOM_INDEX[role][target]);
         p.room = target;
         p.roomChangedAt = performance.now();
@@ -907,6 +1023,9 @@
         p.burstDoneAt = 0;
         p.officeKillAt = 0;
         p.killForced = false;
+        p.killAt = 0;
+                p.killDeadline = 0;
+        p.killCycling = false;
         try { p.conn.send(JSON.stringify({ t: 'doorOut', room: target, why: why || '' })); } catch (e) { }
         try { p.conn.send(JSON.stringify({ t: 'moveOk', room: target })); } catch (e) { }
         host.broadcast({ t: 'anim', role, room: target });
