@@ -189,11 +189,23 @@
         .hidden { display: none !important; }
 
         .err { color: #ff5d5d; }
+
+        /* ---- chip de cuenta axc (SSO) ---- */
+        #accountChip {
+            position: absolute;
+            top: 2.2vh;
+            right: 2vw;
+            z-index: 30;
+            /* por encima de glitch(0)/panel(2)/viñeta(5),
+               por debajo del modal de cuenta axc (z-index 1000) */
+        }
     </style>
 </head>
 
 <body>
     <img id="title" src="../1/resources/title.png">
+    <!-- Sistema de cuentas axc (SSO): botón Iniciar sesión / avatar -->
+    <div id="accountChip"></div>
     <div class="panel">
 
         <!-- pantalla inicial -->
@@ -203,7 +215,7 @@
             <input class="code" id="in-code" maxlength="5" placeholder="CÓDIGO">
             <br><br>
             <button class="btn" id="b-join">&gt; UNIRSE A PARTIDA</button>
-            <div class="status" id="home-status">Roles ALEATORIOS para todos: el GUARDIA se sortea al EMPEZAR (anfitrión incluido) y los demás serán animatrónicos.</div>
+            <div class="status" id="home-status">Se necesita CUENTA axc para jugar: tu usuario será tu nombre. Roles ALEATORIOS para todos; el GUARDIA se sortea al EMPEZAR.</div>
         </div>
 
         <!-- sala de espera -->
@@ -237,6 +249,9 @@
             load(0);
         })();
     </script>
+    <!-- Sistema de cuentas axc (SSO): una sola cuenta para todas las páginas de axcStudios -->
+    <script src="https://axcgamestudios.github.io/axcStudios/axc-auth.js"></script>
+    <script src="https://axcgamestudios.github.io/axcStudios/axc-ui.js"></script>
     <script src="net.js"></script>
     <script src="lobby.js"></script>
 </body>

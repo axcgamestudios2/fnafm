@@ -1,5 +1,8 @@
 // ============================================================
 // FNAF 1 MP — Lobby: crear / unirse / roles ALEATORIOS
+// - CUENTA axc (SSO) obligatoria para jugar: el USUARIO de la
+//   cuenta se usa como nombre de jugador (una sola cuenta para
+//   todas las páginas de axcStudios — tienda, axcOS, juegos).
 // - El GUARDIA se sortea ALEATORIAMENTE al pulsar EMPEZAR entre
 //   TODOS los jugadores — anfitrión incluido (puede tocarle a
 //   cualquiera; el anfitrión no es guardia por obligación).
@@ -9,6 +12,8 @@
 // - Roles sin jugador quedan controlados por la IA original.
 // - Creación robusta: feedback inmediato, timeout y reintentos
 //   con código nuevo si el servidor de red falla.
+// - Degradación suave del SSO: si la biblioteca no carga o el
+//   servidor de cuentas está caído, se juega igual (con aviso).
 // ============================================================
 
 (function () {
@@ -60,15 +65,72 @@
             'Revisa tu conexión a internet y recarga la página.</span>';
     }
 
-    // ---------- utilidades UI ----------
-    function askName(def) {
-        let n = sessionStorage.getItem('fnafm-name');
-        if (!n) {
-            n = prompt('Tu nombre:', def || ('Jugador' + Math.floor(Math.random() * 90 + 10)));
-            if (n === null) n = def || 'Jugador';
-            n = n.slice(0, 12) || 'Jugador';
-            sessionStorage.setItem('fnafm-name', n);
+    // ---------- Sistema de cuentas axc (SSO) ----------
+    // La sesión es obligatoria para crear/unirse a partidas; el
+    // usuario de la cuenta se convierte en el nombre del jugador.
+    // Si el sistema no está disponible (CDN o textdb caídos) el
+    // juego NO se bloquea: se juega con degradación suave.
+    let axcBooting = true;      // AXC.init() en curso (restaurando sesión)
+    let axcPending = null;      // acción a ejecutar cuando haya sesión
+
+    function axcLibsOk() { return !!(window.AXC && window.AXC_UI); }
+
+    function axcServerDown() {
+        try { return !!(window.AXC && AXC.state.db === false); } catch (e) { return false; }
+    }
+
+    // Puerta: exige sesión antes de ejecutar la acción pedida
+    function axcGate(next) {
+        if (!axcLibsOk()) return next();                    // biblioteca no cargada → no bloquear
+        if (AXC.state.user) return next();                  // sesión activa → a jugar
+        if (axcServerDown()) {                              // servidor de cuentas caído → avisar y jugar
+            try { AXC_UI.toast('Servidor de cuentas no disponible: jugando sin cuenta'); } catch (e) { }
+            return next();
         }
+        axcPending = next;                                  // guardar la acción...
+        if (axcBooting) {
+            $('home-status').textContent = 'Conectando con tu cuenta axc...';
+        } else {
+            AXC_UI.openAuth('login');                       // ...y pedir la sesión
+        }
+    }
+
+    // Se llama al arrancar y en cada cambio de sesión
+    function axcOnAuth(u) {
+        axcBooting = false;
+        if (u && axcPending) {
+            try { AXC_UI.closeAuth(); } catch (e) { }
+            const act = axcPending; axcPending = null;
+            act();                                          // continuar lo que el jugador pulsó
+            return;
+        }
+        if (u && mode === null && !started) {
+            $('home-status').innerHTML = 'Sesión: <b>' + String(u.u).slice(0, 16) +
+                '</b> — tu usuario será tu nombre en la partida.';
+        }
+    }
+
+    function axcBoot() {
+        if (!axcLibsOk()) { axcBooting = false; return; }  // CDN caído: degradar sin bloquear
+        try {
+            AXC_UI.init({
+                chip: '#accountChip',
+                onAuth: axcOnAuth
+            });
+            setTimeout(() => { axcBooting = false; }, 12000); // red de seguridad
+        } catch (e) { axcBooting = false; }
+    }
+
+    // ---------- utilidades UI ----------
+    // Nombre de jugador = USUARIO de la cuenta axc (el login es
+    // obligatorio para llegar aquí; el prompt manual quedó eliminado)
+    function askName(def) {
+        let n = null;
+        try { if (window.AXC && AXC.state.user) n = AXC.state.user.u; } catch (e) { }
+        if (!n) n = sessionStorage.getItem('fnafm-name');
+        if (!n) n = def || 'Jugador';
+        n = String(n).slice(0, 12) || 'Jugador';
+        try { sessionStorage.setItem('fnafm-name', n); } catch (e) { }
         return n;
     }
 
@@ -345,11 +407,12 @@
     }
 
     // ---------- eventos ----------
-    $('b-create').addEventListener('click', hostStart);
+    // Todo pasa por la puerta de la cuenta axc (SSO)
+    $('b-create').addEventListener('click', () => axcGate(hostStart));
     $('b-join').addEventListener('click', () => {
         const c = $('in-code').value.trim().toUpperCase();
         if (c.length !== 5) { $('home-status').innerHTML = '<span class="err">Introduce un código de 5 caracteres.</span>'; return; }
-        clientStart(c);
+        axcGate(() => clientStart(c));
     });
     $('in-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('b-join').click(); });
 
@@ -363,4 +426,7 @@
         if (mode === 'client') sendToHost({ t: 'leave' });
         setTimeout(() => window.location.href = '../index.html', 200);
     });
+
+    // Arranque del sistema de cuentas axc (SSO)
+    axcBoot();
 })();

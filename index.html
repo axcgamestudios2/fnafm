@@ -140,6 +140,15 @@
             letter-spacing: 0.3vw;
             vertical-align: super;
         }
+
+        /* ---- chip de cuenta axc (SSO) ---- */
+        #accountChip {
+            position: absolute;
+            top: 2.5vh;
+            right: 2vw;
+            z-index: 30;
+            /* sobre el menú(2) y la viñeta, bajo el modal axc (z-index 1000) */
+        }
     </style>
 </head>
 
@@ -150,17 +159,23 @@
         <div class="menu">
             <a href="1/index.html"><button class="btn">&gt; JUGAR SOLO</button></a>
             <a href="mp/lobby.html"><button class="btn">&gt; MULTIJUGADOR <span class="new">NUEVO</span></button></a>
-            <div class="note">MULTIJUGADOR: crea una partida como GUARDIA o únete como
-                FOXY, BONNIE, CHICA o FREDDY. El guardia juega la noche original;
+            <div class="note">Necesitas una CUENTA axc gratuita para jugar (sirve en todas
+                las páginas de axcStudios; en multijugador tu usuario es tu nombre).
+                MULTIJUGADOR: crea una partida y el GUARDIA se sortea al EMPEZAR;
                 los animatrónicos se mueven en primera persona por la pizzería.
                 Pulsa <b>-=</b> para pantalla completa.</div>
         </div>
         <a href="https://discord.gg/xuu8TnSY4b">
             <div class="launcher-text"><img src="1/resources/launcher-text.png" style="width: 45vw;"></div>
         </a>
+        <!-- Sistema de cuentas axc (SSO): botón Iniciar sesión / avatar -->
+        <div id="accountChip"></div>
     </div>
     <div class="glitch"></div>
     <img src="1/resources/vignette.png" class="vignette">
+    <!-- Sistema de cuentas axc (SSO): una sola cuenta para todas las páginas de axcStudios -->
+    <script src="https://axcgamestudios.github.io/axcStudios/axc-auth.js"></script>
+    <script src="https://axcgamestudios.github.io/axcStudios/axc-ui.js"></script>
     <script>
         // Evita el movimiento táctil (como el original)
         window.addEventListener("scroll", preventMotion, false);
@@ -182,6 +197,54 @@
         document.addEventListener('keyup', (event) => {
             delete pressedKeys[event.key];
         });
+
+        // ---- Sistema de cuentas axc (SSO) ----
+        // JUGAR (solo o multijugador) exige sesión; el modal de cuenta
+        // se abre al pulsar y la acción continúa sola al iniciar sesión.
+        // Degradación suave: si la biblioteca o el servidor de cuentas
+        // no están disponibles, se juega igual (con aviso).
+        (function () {
+            let pending = null;   // destino en espera de sesión
+
+            function libsOk() { return !!(window.AXC && window.AXC_UI); }
+            function serverDown() {
+                try { return !!(window.AXC && AXC.state.db === false); } catch (e) { return false; }
+            }
+
+            function gate(href) {
+                return function (ev) {
+                    ev.preventDefault();
+                    if (!libsOk()) { window.location.href = href; return; }        // CDN caído → no bloquear
+                    if (AXC.state.user) { window.location.href = href; return; }   // con sesión → jugar
+                    if (serverDown()) {                                            // servidor caído → avisar y jugar
+                        try { AXC_UI.toast('Servidor de cuentas no disponible: jugando sin cuenta'); } catch (e) { }
+                        window.location.href = href; return;
+                    }
+                    pending = href;
+                    AXC_UI.openAuth('login');
+                };
+            }
+
+            const links = document.querySelectorAll('.menu a');
+            for (let i = 0; i < links.length; i++) {
+                links[i].addEventListener('click', gate(links[i].getAttribute('href')));
+            }
+
+            if (libsOk()) {
+                try {
+                    AXC_UI.init({
+                        chip: '#accountChip',
+                        onAuth: function (u) {
+                            if (u && pending) {
+                                try { AXC_UI.closeAuth(); } catch (e) { }
+                                const h = pending; pending = null;
+                                window.location.href = h;               // continuar lo pulsado
+                            }
+                        }
+                    });
+                } catch (e) { }
+            }
+        })();
     </script>
 </body>
 
