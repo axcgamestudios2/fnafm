@@ -31,27 +31,14 @@
 //   - Cuenta atrás de movimiento (balanceo) y límite de tiempo en la
 //     puerta (anti-camping).
 //
-// v8 (render 100% nativo — "usa el movimiento real de los animatronicos"):
-//   - INGENIERÍA INVERSA COMPLETA del juego original (FNAF1HTML5.cch):
-//     se localizó el objeto-imagen de cámara y se verificó CON PÍXELES
-//     que el juego renderiza a los animatrónicos EN TODAS las cámaras
-//     y EN VIVO (sin transición) con solo escribir los contadores.
-//     Los mapas de contadores REALES (verificados uno a uno):
-//       bonnie: 0=escenario, 1=comedor, 2=bastidores, 3=pasillo O,
-//               4=almacén, 5=esquina O, 6=puerta O, 7=marco, 8=oficina
-//       chica:  0=escenario, 1=comedor, 2=baños, 3=cocina, 4=pasillo E,
-//               5=esquina E, 6=puerta E, 7=marco, 8=oficina
-//       freddy: 0/1/2=escenario, 3=comedor, 4=baños, 5=cocina,
-//               6=pasillo E, 7=esquina E, 8=puerta E
-//       fox:    0=cortina, 1=asomado, 2=medio fuera,
-//               3=¡CARRERA LETAL!, 4=ataque
-//   - ELIMINADOS todos los overlays inventados de cámaras y puertas
-//     (caras de jumpscare recortadas): ahora el guardia ve EXACTAMENTE
-//     lo que el juego original pinta (fotos reales de cada sala con el
-//     animatrónico dentro, cara en primer plano en esquinas/almacén,
-//     Foxy asomándose en la cueva, cocina solo-audio).
-//   - Asomo de Foxy capeado a 2: el valor 3 dispara la CARRERA REAL del
-//     juego (mataba al guardia "solo" — verificado en vivo dos veces).
+//
+// v8.1 (canon Foxy + UI destello):
+//   - 👁 CANON FOXY: Foxy NO puede asomarse ni correr mientras el guardia
+//     lo esté mirando en la CAM 1C (cueva del pirata). Si ya salió sin
+//     ser visto, que lo vean en los pasillos no lo frena (como el original).
+//   - ⚡ Panel del DESTELLO rediseñado: título "SISTEMA DE DEFENSA",
+//     pips de cargas, barra de recarga, rayo animado y arcos eléctricos
+//     que barren la pantalla al dispararlo.
 // ============================================================
 
 (function () {
@@ -61,7 +48,7 @@
     const ROOM = params.get('mp');
     if (!ROOM) return; // un jugador: no hacer nada
 
-    const BRIDGE_VERSION = 'v8-render-nativo-real';
+    const BRIDGE_VERSION = 'v7.3-foxy-canon-ui-destello';
     try { console.log('[MP] guard-bridge ' + BRIDGE_VERSION); } catch (e) { }
 
     const MY_NAME = params.get('name') || 'Guardia';
@@ -210,10 +197,30 @@
     // estilos de overlays
     (function injectStyle() {
         const st = document.createElement('style');
-        st.textContent = '@keyframes mpshake{0%{transform:translate(0,0) scale(1.02)}25%{transform:translate(-14px,9px) scale(1.05)}50%{transform:translate(11px,-13px) scale(1.03)}75%{transform:translate(-9px,-8px) scale(1.06)}100%{transform:translate(13px,10px) scale(1.02)}}' +
-            '@keyframes mpstunready{0%,100%{box-shadow:0 0 .6vw rgba(80,150,255,.3)}50%{box-shadow:0 0 1.8vw rgba(80,150,255,.8)}}' +
-            '#mp-stun-btn.go{animation:mpstunready 1.6s infinite}#mp-stun-btn:disabled{cursor:default}' +
-            '#mp-stun.recharged #mp-stun-btn{animation:mpstunready .35s 5}';
+        st.textContent =
+            '@keyframes mpshake{0%{transform:translate(0,0) scale(1.02)}25%{transform:translate(-14px,9px) scale(1.05)}50%{transform:translate(11px,-13px) scale(1.03)}75%{transform:translate(-9px,-8px) scale(1.06)}100%{transform:translate(13px,10px) scale(1.02)}}' +
+            // ⚡ panel del DESTELLO (v7.3): estilo de sistema de defensa animado
+            '@keyframes mpstunready{0%,100%{box-shadow:0 0 .6vw rgba(80,150,255,.3)}50%{box-shadow:0 0 1.8vw rgba(80,150,255,.85)}}' +
+            '@keyframes mpbolt{0%,100%{opacity:1;transform:scale(1) rotate(-4deg)}50%{opacity:.55;transform:scale(1.22) rotate(5deg)}}' +
+            '@keyframes mpstundot{0%,100%{opacity:1;box-shadow:0 0 .5vw #6db4ff}50%{opacity:.3;box-shadow:0 0 .15vw #6db4ff}}' +
+            '@keyframes mparcsweep{0%{opacity:0;transform:scaleX(.15)}25%{opacity:1}100%{opacity:0;transform:scaleX(1.05)}}' +
+            '@keyframes mprecharge{0%{transform:translateY(0)}45%{transform:translateY(-.55vh)}100%{transform:translateY(0)}}' +
+            '#mp-stun{font-family:monospace}' +
+            '#mp-stun .mp-stun-head{display:flex;align-items:center;gap:.4vw;font-size:.68vw;letter-spacing:.26vw;color:#7aa8d8;margin-bottom:.5vh}' +
+            '#mp-stun .mp-stun-head b{display:inline-block;width:.5vw;height:.5vw;border-radius:50%;background:#6db4ff;box-shadow:0 0 .5vw #6db4ff;animation:mpstundot 1.6s infinite}' +
+            '#mp-stun-btn{display:flex;align-items:center;gap:.6vw;background:linear-gradient(180deg,rgba(10,16,34,.95),rgba(4,8,18,.96));border:.14vw solid #24446e;color:#bfe0ff;font-size:1vw;padding:.9vh 1.1vw;letter-spacing:.07vw;text-shadow:0 0 .5vw rgba(109,180,255,.45);cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s;clip-path:polygon(.6vw 0,100% 0,100% calc(100% - .6vw),calc(100% - .6vw) 100%,0 100%,0 .6vw);box-shadow:0 .4vh 1.8vw rgba(0,0,0,.6),inset 0 1px 0 rgba(160,200,255,.07)}' +
+            '#mp-stun-btn .mp-bolt{font-size:1.55vw;line-height:1;text-shadow:0 0 .8vw rgba(109,180,255,.95)}' +
+            '#mp-stun-btn.go{border-color:#6db4ff;animation:mpstunready 1.6s infinite}' +
+            '#mp-stun-btn.go .mp-bolt{animation:mpbolt .85s infinite}' +
+            '#mp-stun-btn:not(:disabled):hover{transform:translateY(-.3vh);border-color:#8fc4ff}' +
+            '#mp-stun-btn:disabled{cursor:default}' +
+            '#mp-stun-pips{display:flex;gap:.32vw;margin-left:.5vw}' +
+            '#mp-stun-pips i{width:.5vw;height:.95vw;transform:skewX(-16deg);background:#12203a;border:.07vw solid #24446e;transition:background .25s,box-shadow .25s}' +
+            '#mp-stun-pips i.on{background:linear-gradient(180deg,#9fd0ff,#4d8fe0);border-color:#6db4ff;box-shadow:0 0 .55vw rgba(109,180,255,.85)}' +
+            '#mp-stun-cdbar{height:.55vh;background:#081226;border:.07vw solid #1c3a5e;margin-top:.6vh;overflow:hidden}' +
+            '#mp-stun-cdfill{height:100%;width:100%;background:linear-gradient(90deg,#2a5a9e,#6db4ff);box-shadow:0 0 .5vw rgba(109,180,255,.55);transition:width .22s linear}' +
+            '#mp-stun.recharged #mp-stun-pips i{animation:mprecharge .5s 2}' +
+            '.mp-arc{position:fixed;left:0;right:0;height:2px;z-index:99998;pointer-events:none;background:linear-gradient(90deg,transparent,rgba(170,215,255,.95) 28%,#fff 50%,rgba(170,215,255,.95) 72%,transparent);filter:drop-shadow(0 0 6px rgba(109,180,255,.95));animation:mparcsweep .55s ease-out forwards;opacity:0}';
         document.head.appendChild(st);
     })();
 
@@ -649,28 +656,37 @@
         b.style.cssText = 'position:fixed;inset:0;z-index:99997;background:radial-gradient(ellipse at center, rgba(120,180,255,0.30), rgba(30,50,110,0.14) 62%, transparent);pointer-events:none;';
         document.body.appendChild(b);
         setTimeout(() => b.remove(), 950);
+        // arcos eléctricos que barren la pantalla (v7.3)
+        for (let i = 0; i < 3; i++) {
+            const arc = document.createElement('div');
+            arc.className = 'mp-arc';
+            arc.style.top = (12 + Math.random() * 76) + '%';
+            arc.style.animationDelay = (i * 0.12 + Math.random() * 0.1) + 's';
+            document.body.appendChild(arc);
+            setTimeout(() => arc.remove(), 1100);
+        }
     }
 
     function buildStunButton() {
         const d = document.createElement('div');
         d.id = 'mp-stun';
-        d.style.cssText = 'position:fixed;left:1.4vw;bottom:2vh;z-index:99998;font-family:monospace;display:none;';
+        d.style.cssText = 'position:fixed;left:1.4vw;bottom:2vh;z-index:99998;display:none;';
+        let pips = '';
+        for (let i = 0; i < STUN_MAX; i++) pips += '<i></i>';
         d.innerHTML =
-            '<button id="mp-stun-btn" title="DESTELLO [F]: aturde a TODOS los animatrónicos 5s y echa del marco de la puerta a quien acampe (vuelve al comedor). Se recarga 1 carga cada hora de la noche (máx ' + STUN_MAX + ')." ' +
-            'style="display:flex;align-items:center;gap:0.55vw;background:rgba(8,12,24,0.9);border:0.16vw solid #6db4ff;color:#bfe0ff;font-size:1vw;padding:0.8vh 1vw;letter-spacing:0.07vw;text-shadow:0 0 0.5vw rgba(109,180,255,0.5);">' +
-            '<span style="font-size:1.45vw;line-height:1;">⚡</span><span>DESTELLO</span>' +
-            '<span id="mp-stun-n" style="color:#fff;background:rgba(109,180,255,0.25);padding:0.15vh 0.5vw;border:0.08vw solid rgba(109,180,255,0.6);">x' + STUN_MAX + '</span>' +
+            '<div class="mp-stun-head"><b></b>SISTEMA DE DEFENSA</div>' +
+            '<button id="mp-stun-btn" title="DESTELLO [F]: aturde a TODOS los animatrónicos 5s y echa del marco de la puerta a quien acampe (vuelve al comedor). +1 carga cada hora de la noche (máx ' + STUN_MAX + ').">' +
+            '<span class="mp-bolt">⚡</span>' +
+            '<span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.3;">' +
+            '<span style="font-size:1.18vw;font-weight:bold;letter-spacing:.14vw;">DESTELLO</span>' +
+            '<span style="font-size:.6vw;color:#8fb8e8;letter-spacing:.12vw;">clic o tecla [F]</span></span>' +
+            '<span id="mp-stun-pips">' + pips + '</span>' +
             '</button>' +
-            '<div id="mp-stun-cd" style="font-size:0.72vw;color:#8fb8e8;margin-top:0.4vh;letter-spacing:0.05vw;"></div>';
+            '<div id="mp-stun-cdbar"><div id="mp-stun-cdfill"></div></div>' +
+            '<div id="mp-stun-cd" style="font-size:.72vw;color:#8fb8e8;margin-top:.45vh;letter-spacing:.05vw;"></div>' +
+            '<div style="font-size:.68vw;color:#5a7ea8;margin-top:.35vh;max-width:16vw;line-height:1.5;">Aturde a todos los animatrónicos 5s y echa a quien acampe en tu puerta. +1 carga cada hora.</div>';
         document.body.appendChild(d);
         document.getElementById('mp-stun-btn').addEventListener('click', doGuardStun);
-        // primer uso de la sesión: explicar la habilidad
-        if (!stun.hintShown) {
-            const h = document.createElement('div');
-            h.style.cssText = 'font-size:0.72vw;color:#7aa8d8;margin-top:0.4vh;max-width:16vw;line-height:1.5;';
-            h.textContent = 'Aturde a todos los animatrónicos 5s y echa a quien acampe en tu puerta. +1 carga cada hora.';
-            d.appendChild(h);
-        }
     }
 
     function updateStunUI(s) {
@@ -681,13 +697,16 @@
         if (!atNight) return;
         const btn = document.getElementById('mp-stun-btn');
         const cdEl = document.getElementById('mp-stun-cd');
+        const fill = document.getElementById('mp-stun-cdfill');
         const cd = Math.max(0, stun.cdUntil - Date.now());
         const ready = stun.charges > 0 && cd <= 0;
         btn.disabled = !ready;
         btn.classList.toggle('go', ready);
-        document.getElementById('mp-stun-n').textContent = 'x' + stun.charges;
+        const pips = d.querySelectorAll('#mp-stun-pips i');
+        for (let i = 0; i < pips.length; i++) pips[i].classList.toggle('on', i < stun.charges);
+        if (fill) fill.style.width = ready ? '100%' : Math.round(100 - (cd / STUN_CD_MS) * 100) + '%';
         if (cdEl) cdEl.textContent = ready
-            ? 'LISTO — clic o [F]'
+            ? '⚡ LISTO — clic o [F]'
             : (stun.charges <= 0 ? 'sin cargas — +1 cada hora' : 'recargando ' + Math.ceil(cd / 1000) + 's');
     }
 
@@ -1094,7 +1113,15 @@
     }
 
     function handleFoxyMove(p, entry, now) {
-        // Foxy: el progreso de cortina lo decide el JUGADOR (p.foxPeek): el guion
+        // 👁 CANON FNAF1 (v7.3): Foxy NO puede asomarse mientras el guardia
+        // lo esté mirando en la CAM 1C (cueva del pirata). Si ya salió sin
+        // ser visto, que lo vean en los pasillos no lo frena.
+        if (rs('viewing') === 99) {
+            try { entry.conn.send(JSON.stringify({ t: 'moveBad', why: 'observado', wait: 1 })); } catch (e) { }
+            log('FOXY bloqueado: el guardia lo mira en la CAM 1C');
+            return;
+        }
+        // El progreso de cortina lo decide el JUGADOR (p.foxPeek): el guion
         // por hora del juego demo también escribe 'fox progress' y no debe
         // colarse aquí (el bucle de autoridad lo revierte).
         // v8: el asomo se capea a 2 — ¡el valor 3 dispara la CARRERA REAL
@@ -1132,6 +1159,12 @@
             const cur = (p.foxPeek != null) ? p.foxPeek : rs('fox progress');
             if (cur == null || cur < 1) {
                 try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'asomate-primero' })); } catch (e) { }
+                return;
+            }
+            // 👁 CANON: Foxy tampoco puede CORRER si lo están viendo en la 1C
+            if (rs('viewing') === 99) {
+                try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'observado' })); } catch (e) { }
+                log('FOXY bloqueado: el guardia lo mira en la CAM 1C (correr)');
                 return;
             }
             setRS('fox progress', 4);

@@ -18,7 +18,17 @@
 //  - CUENTA ATRÁS de movimiento entre salas (balanceo: antes podía
 //    cruzar la pizzería en segundos). Visible en los botones.
 //  - LÍMITE de tiempo en el marco de la puerta con cuenta atrás
-//    visible (anti-camping: el host te retira pasados 10s).
+//    visible (anti-camping: el host te retira pasados 8s).
+//
+// v8 (canon Foxy + UI):
+//  - 👁 CANON FOXY: si el guardia te mira en la CAM 1C no puedes
+//    asomarte ni correr (botones bloqueados en vivo con aviso). Si ya
+//    saliste sin ser visto, verte en los pasillos ya no te frena.
+//  - Medidor de ASOMO (pips) para Foxy y UI renovada de arriba abajo:
+//    atmósfera CRT (grano + scanlines), HUD con acentos del rol, banner
+//    "te están viendo" con franjas de peligro, minimapa con pulso y
+//    transiciones, botones con hover/glow, y DESTELLO con arcos
+//    eléctricos, temblor de pantalla y barra de drenaje.
 // ============================================================
 
 (function () {
@@ -148,8 +158,10 @@
         doorSince: 0,         // cuándo llegaste al marco (para la cuenta atrás)
         cooldown: { jumpscare: 0, special: 0 },
         stunUntil: 0,           // ⚡ DESTELLO del guardia activo hasta esta fecha
+        stunMs: 5000,           // duración del último destello (para la barra)
         connected: false,
-        lastMoveSent: 0
+        lastMoveSent: 0,
+        _foxyWatchedNav: false  // 👁 último estado de "guardia mirando 1C" pintado
     };
     let net = null;
     let wasStunned = false;   // ⚡ para restaurar los botones al acabar el destello
@@ -373,6 +385,13 @@
 
     function stunLeft() { return Math.max(0, cli.stunUntil - Date.now()); }
 
+    // 👁 CANON FOXY: ¿el guardia está mirando AHORA la CAM 1C? Mientras
+    // te observe en la cueva no puedes asomarte ni correr; una vez
+    // fuera, verte en los pasillos ya no te frena.
+    function foxyWatched() {
+        return cli.phase === 'night' && !!cli.state && cli.state.viewing === 99;
+    }
+
     function mkNavBtn(cls, arrow, label, onClick, disabled, sub) {
         const b = document.createElement('button');
         b.className = 'navbtn' + (cls ? ' ' + cls : '');
@@ -468,17 +487,21 @@
     function renderFoxyNav() {
         // Foxy: asomarse (máximo 2 — el valor 3 dispara la carrera REAL
         // del juego y mataba al guardia sin que Foxy atacara) y correr
+        // 👁 CANON: si el guardia te está mirando en la CAM 1C no puedes
+        // ni asomarte ni correr — espera a que cambie de cámara.
+        const watchedNow = foxyWatched();
         const peekBtn = mkNavBtn('', '◑', 'ASOMARSE FUERA DE LA CORTINA', () => {
             if (navDisabled()) return;
+            if (watchedNow) { toast('👁 ¡EL GUARDIA TE ESTÁ VIENDO! Espera a que mire otra cámara...', 3200); return; }
             if (stunned()) { toast('⚡ ¡Aturdido por el destello! Espera ' + Math.ceil(stunLeft() / 1000) + 's...'); return; }
             if (Date.now() - cli.lastMoveSent < (Date.now() < cli.sprintUntil ? MOVE_CD / 2 : MOVE_CD)) return;
             cli.lastMoveSent = Date.now();
             net && net.send({ t: 'move', to: 'peek' });
-        }, cli.foxPeek >= 2 || cli.attackBusy || cli.phase !== 'night',
-            cli.foxPeek >= 2 ? 'ya estás medio fuera — ¡CORRE!' : 'el guardia te ve en la CAM 1C');
+        }, cli.foxPeek >= 2 || cli.attackBusy || cli.phase !== 'night' || watchedNow,
+            watchedNow ? '👁 ¡te están viendo por la CAM 1C!' : (cli.foxPeek >= 2 ? 'ya estás medio fuera — ¡CORRE!' : 'el guardia te ve en la CAM 1C'));
         peekBtn.__moveBtn = true;
-        mkNavBtn('attack', '!', '¡CORRER A LA OFICINA!', doAttack, cli.foxPeek < 1 || cli.attackBusy || cli.phase !== 'night',
-            cli.foxPeek < 1 ? 'asómate primero' : 'por el pasillo oeste');
+        mkNavBtn('attack', '!', '¡CORRER A LA OFICINA!', foxyRun, cli.foxPeek < 1 || cli.attackBusy || cli.phase !== 'night' || watchedNow,
+            watchedNow ? '👁 ¡te están viendo! no puedes correr' : (cli.foxPeek < 1 ? 'asómate primero' : 'por el pasillo oeste'));
         if (cli.foxPeek > 0 && !cli.attackBusy) {
             mkNavBtn('', '◁', 'VOLVER TRAS LA CORTINA', () => {
                 cli.foxPeek = 0;
@@ -489,6 +512,12 @@
         }
         const overlays = ['(Tras la cortina)', '(Asomado)', '(Medio fuera)'];
         if (!cli.walking) $('roomname').textContent = ROOM_NAME['1C'] + ' ' + (overlays[cli.foxPeek] || '');
+    }
+
+    // 👁 Foxy corre — comprobación previa de "me están viendo"
+    function foxyRun() {
+        if (foxyWatched()) { toast('👁 ¡EL GUARDIA TE ESTÁ VIENDO! No puedes correr mientras te observe...', 3200); return; }
+        doAttack();
     }
 
     function tryMove(dest) {
@@ -631,6 +660,20 @@
 
     function updateAbilityUI() {
         const now = Date.now();
+        // 👁 FOXY en vivo: los botones dependen de si el guardia mira la
+        // CAM 1C — repintarlos cuando el estado cambie (estado a 10 Hz).
+        if (ROLE === 'foxy') {
+            const w = foxyWatched();
+            if (w !== cli._foxyWatchedNav) { cli._foxyWatchedNav = w; renderNav(); }
+            // medidor de ASOMO (pips de cortina) + estado "bloqueado"
+            const fm = $('foxmeter');
+            if (fm) {
+                fm.style.display = (cli.phase === 'night' && !cli.runShown && !cli.attackBusy) ? 'flex' : 'none';
+                fm.classList.toggle('blocked', w);
+                const fp = fm.querySelectorAll('.fmpips i');
+                for (let i = 0; i < fp.length; i++) fp[i].classList.toggle('on', i < cli.foxPeek);
+            }
+        }
         const cdJ = Math.max(0, 15000 - (now - cli.cooldown.jumpscare));
         const cdS = Math.max(0, 20000 - (now - cli.cooldown.special));
         $('cd-jump').textContent = cdJ > 0 ? Math.ceil(cdJ / 1000) + 's' : 'listo';
@@ -947,17 +990,37 @@
         document.body.appendChild(d);
         requestAnimationFrame(() => { d.style.opacity = '0'; });
         setTimeout(() => d.remove(), 600);
+        // arcos eléctricos que barren la vista (v8)
+        for (let i = 0; i < 3; i++) {
+            const a = document.createElement('div');
+            a.className = 'stunarc';
+            a.style.top = (10 + Math.random() * 80) + '%';
+            a.style.animationDelay = (i * 0.14 + Math.random() * 0.12) + 's';
+            document.body.appendChild(a);
+            setTimeout(() => a.remove(), 1200);
+        }
     }
 
     function updateStunBar() {
         let el = $('stunbar');
         if (!el) return;
         const left = stunLeft();
-        if (left <= 0 || cli.phase !== 'night') { el.style.display = 'none'; return; }
+        if (left <= 0 || cli.phase !== 'night') {
+            el.style.display = 'none';
+            document.body.classList.remove('zapped');
+            return;
+        }
         el.style.display = 'block';
+        document.body.classList.add('zapped');   // temblor de pantalla
         const t = Math.ceil(left / 1000);
-        const html = '⚡ ATURDIDO POR EL DESTELLO ⚡<small>El guardia te cegó — puedes moverte de nuevo en ' + t + 's</small>';
-        if (el.__h !== html) { el.__h = html; el.innerHTML = html; }
+        const pct = Math.max(0, Math.min(100, left / ((cli.stunMs || 5000) / 100)));
+        const txt = '⚡ ATURDIDO POR EL DESTELLO ⚡<small>El guardia te cegó — te mueves de nuevo en ' + t + 's</small>';
+        if (el.__h !== txt) {
+            el.__h = txt;
+            el.innerHTML = txt + '<div class="stun-drain"><div></div></div>';
+        }
+        const fill = el.querySelector('.stun-drain div');
+        if (fill) fill.style.width = pct + '%';
     }
     // ------------------- Sonidos locales -------------------
     function playLocal(file, vol) {
@@ -1042,6 +1105,7 @@
                 resetDoorState();
                 cli.foxPeek = 0;
                 cli.stunUntil = 0;   // ⚡ nueva noche: el destello se limpia
+                document.body.classList.remove('zapped');
                 const sb = $('stunbar'); if (sb) sb.style.display = 'none';
                 cli.room = (ROLE === 'foxy') ? '1C' : '1A'; // nueva noche: todos al inicio
                 if (ROLE !== 'foxy') view.style.filter = '';
@@ -1095,15 +1159,19 @@
                     ? 'Cuenta atrás de movimiento: ' + (m.wait || 1) + 's antes del próximo paso.'
                     : (why === 'aturdido'
                         ? '⚡ ¡DESTELLO del guardia! Aturdido ' + (m.wait || 5) + 's — caminata cancelada.'
-                        : 'No puedes avanzar ahí desde tu posición actual.'));
+                        : (why === 'observado'
+                            ? '👁 ¡El guardia te está viendo! Caminata cancelada.'
+                            : 'No puedes avanzar ahí desde tu posición actual.')));
             } else {
                 toast(why === 'max-cortina'
                     ? 'Ya estás completamente fuera de la cortina'
                     : (why === 'aturdido'
                         ? '⚡ ¡DESTELLO del guardia! Aturdido ' + (m.wait || 5) + 's...'
-                        : (why === 'demasiado-rapido'
-                            ? 'Cuenta atrás de movimiento: ' + (m.wait || 1) + 's antes del próximo paso.'
-                            : 'No puedes avanzar ahí.')));
+                        : (why === 'observado'
+                            ? '👁 ¡EL GUARDIA TE ESTÁ VIENDO! Espera a que cambie de cámara...'
+                            : (why === 'demasiado-rapido'
+                                ? 'Cuenta atrás de movimiento: ' + (m.wait || 1) + 's antes del próximo paso.'
+                                : 'No puedes avanzar ahí.'))));
             }
         });
         net.on('atk', (m) => {
@@ -1122,6 +1190,7 @@
                 else if (m.why === 'cooldown') toast('El ataque aún se enfría (' + (m.wait || 10) + 's entre intentos)...');
                 else if (m.why === 'lejos') toast('Debes estar en la esquina del pasillo para asomarte.');
                 else if (m.why === 'asomate-primero') toast('Asímate primero fuera de la cortina.');
+                else if (m.why === 'observado') toast('👁 ¡EL GUARDIA TE ESTÁ VIENDO! No puedes correr mientras te observe...', 3200);
                 else toast('Aún no puedes atacar.');
                 leaveDoorView();
                 renderNav();
@@ -1155,6 +1224,7 @@
         net.on('guardStun', (m) => {
             const ms = (m && m.ms) || 5000;
             cli.stunUntil = Date.now() + ms;
+            cli.stunMs = ms || 5000;
             stunFlash();
             playZapLocal();
             glitch.classList.add('on');
@@ -1175,6 +1245,10 @@
     $('role-icon').src = 'assets/roles/' + ROLE + '.png';
     $('role-name').textContent = ROLE.toUpperCase();
     $('role-player').textContent = NAME;
+    // banner de "te están viendo": texto específico para Foxy (canon CAM 1C)
+    $('watched').innerHTML = (ROLE === 'foxy')
+        ? '👁 EL GUARDIA TE ESTÁ VIENDO 👁<small>NO PUEDES ASOMARTE NI CORRER — ESPERA A QUE CAMBIE DE CÁMARA</small>'
+        : '⚠ TE ESTÁN VIENDO POR LA CÁMARA ⚠';
     buildMinimap();
     updateAbilityUI();
     connect();
