@@ -78,6 +78,17 @@
         /* temblor de pantalla del destello */
         body.zapped { animation: bodyzap .13s infinite; }
 
+        /* 🔫 daño de bala: rojo, parpadeo de fallo y vista dañada */
+        body.gunlocked #view { filter: brightness(.5) saturate(.35) sepia(.45) hue-rotate(-45deg) contrast(1.25); }
+        body.gunlocked { animation: gunshake .3s infinite; }
+        @keyframes gunshake {
+            0% { transform: translate(0, 0); }
+            25% { transform: translate(.3vw, -.24vh); }
+            50% { transform: translate(-.26vw, .26vh); }
+            75% { transform: translate(.18vw, .12vh); }
+            100% { transform: translate(0, 0); }
+        }
+
         @keyframes bodyzap {
             0% { transform: translate(0, 0); }
             22% { transform: translate(.22vw, -.18vh); }
@@ -525,6 +536,54 @@
         #stunbar::before { left: 5%; }
         #stunbar::after { right: 5%; animation-delay: 0.16s; }
 
+        /* ============ 🔫 BANNER DE IMPACTO (PISTOLA DEL GUARDIA) ============ */
+        #gunbar {
+            position: fixed;
+            top: 33vh;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 8;
+            display: none;
+            text-align: center;
+            font-size: 1.7vw;
+            font-weight: bold;
+            letter-spacing: 0.22vw;
+            padding: 1.4vh 2.6vw 1.6vh;
+            background: linear-gradient(180deg, rgba(32, 8, 8, 0.94), rgba(16, 3, 3, 0.97));
+            border: 0.18vw solid #d98a2b;
+            color: #ffe9c9;
+            pointer-events: none;
+            box-shadow: 0 0 2.4vw rgba(217, 138, 43, 0.5), inset 0 0 2vw rgba(217, 138, 43, 0.18);
+            clip-path: polygon(1vw 0, calc(100% - 1vw) 0, 100% 1.1vh, 100% calc(100% - 1.1vh), calc(100% - 1vw) 100%, 1vw 100%, 0 calc(100% - 1.1vh), 0 1.1vh);
+            animation: gunframe 0.4s infinite;
+        }
+
+        @keyframes gunframe {
+            0%, 100% { box-shadow: 0 0 2.2vw rgba(217, 138, 43, 0.5), inset 0 0 2vw rgba(217, 138, 43, 0.18); }
+            50% { box-shadow: 0 0 3.4vw rgba(255, 170, 70, 0.95), inset 0 0 2.6vw rgba(217, 138, 43, 0.32); }
+        }
+
+        #gunbar::before,
+        #gunbar::after {
+            content: '🔫';
+            position: absolute;
+            top: -3.4vh;
+            font-size: 1.9vw;
+            animation: boltflick 0.4s infinite;
+        }
+
+        #gunbar::before { left: 5%; }
+        #gunbar::after { right: 5%; animation-delay: 0.2s; }
+
+        #gunbar small {
+            display: block;
+            font-size: 0.9vw;
+            font-weight: normal;
+            color: #eec9a0;
+            letter-spacing: 0.1vw;
+            margin-top: 0.6vh;
+        }
+
         @keyframes boltflick {
             0%, 100% { opacity: 1; transform: scale(1) rotate(-6deg); }
             50% { opacity: 0.55; transform: scale(1.22) rotate(5deg); }
@@ -914,6 +973,7 @@
             transition: opacity 0.22s, transform 0.22s;
             max-width: 58vw;
             box-shadow: 0 0.5vh 2vw rgba(0, 0, 0, 0.7);
+            pointer-events: none;   /* nunca tapar los botones de navegación */
         }
 
         .toast.on { opacity: 1; transform: translate(-50%, 0); }
@@ -985,6 +1045,7 @@
     <div id="foxmeter"><span class="fmlabel">ASOMO</span><div class="fmpips"><i></i><i></i></div></div>
     <div id="doorbanner"></div>
     <div id="stunbar"></div>
+    <div id="gunbar"></div>
     <div id="mates"></div>
 
     <div id="mapwrap">
@@ -1027,7 +1088,7 @@
         })();
     </script>
     <script src="net.js"></script>
-    <script src="anim-game.js?v=81"></script>
+    <script src="anim-game.js?v=90"></script>
 </body>
 
 </html>
