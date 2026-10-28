@@ -72,6 +72,7 @@
     // juego NO se bloquea: se juega con degradación suave.
     let axcBooting = true;      // AXC.init() en curso (restaurando sesión)
     let axcPending = null;      // acción a ejecutar cuando haya sesión
+    let axcModalOpen = false;   // el modal de login está abierto (no liberar pendientes)
 
     function axcLibsOk() { return !!(window.AXC && window.AXC_UI); }
 
@@ -91,6 +92,7 @@
         if (axcBooting) {
             $('home-status').textContent = 'Conectando con tu cuenta axc...';
         } else {
+            axcModalOpen = true;
             AXC_UI.openAuth('login');                       // ...y pedir la sesión
         }
     }
@@ -98,10 +100,29 @@
     // Se llama al arrancar y en cada cambio de sesión
     function axcOnAuth(u) {
         axcBooting = false;
+        axcModalOpen = false;
         if (u && axcPending) {
             try { AXC_UI.closeAuth(); } catch (e) { }
             const act = axcPending; axcPending = null;
             act();                                          // continuar lo que el jugador pulsó
+            return;
+        }
+        // FIX cuelgue: el arranque terminó SIN sesión y hay una acción
+        // esperando. Antes el click quedaba guardado para siempre con el
+        // "Conectando con tu cuenta axc..." eterno en pantalla (axc-auth
+        // solo emite 'auth' cuando HAY sesión; sin sesión nadie llamaba
+        // a liberar lo pendiente). Ahora: pedir login o degradar suave.
+        if (!u && axcPending && mode === null && !started) {
+            if (axcServerDown()) {
+                const act = axcPending; axcPending = null;
+                try { AXC_UI.toast('Servidor de cuentas no disponible: jugando sin cuenta'); } catch (e) { }
+                act();
+            } else {
+                axcModalOpen = true;
+                try { AXC_UI.openAuth('login'); } catch (e) {
+                    const act = axcPending; axcPending = null; act();
+                }
+            }
             return;
         }
         if (u && mode === null && !started) {
@@ -117,7 +138,17 @@
                 chip: '#accountChip',
                 onAuth: axcOnAuth
             });
-            setTimeout(() => { axcBooting = false; }, 12000); // red de seguridad
+            // Red de seguridad: si tras 12s el sistema de cuentas no terminó
+            // de arrancar y el jugador ya pulsó algo, NO dejarlo colgado —
+            // liberar la acción (fail-open) como si el servidor estuviera caído
+            setTimeout(() => {
+                axcBooting = false;
+                if (axcPending && !axcModalOpen && mode === null && !started) {
+                    const act = axcPending; axcPending = null;
+                    try { AXC_UI.toast('Cuenta axc lenta: jugando sin cuenta'); } catch (e) { }
+                    act();
+                }
+            }, 12000);
         } catch (e) { axcBooting = false; }
     }
 
@@ -312,6 +343,16 @@
                 setTimeout(() => { if (!started) renderPlayers(); }, 1500);
             }
         });
+
+        // El broker cortó el socket de la sala (pasa por rachas): la sala
+        // quedaba "publicada" pero MUERTA — quien intentaba entrar después
+        // se quedaba colgado para siempre. Re-registrar el MISMO código.
+        peer.on('disconnected', () => {
+            if (!settled || started) return;
+            $('room-status').textContent = 'Recuperando la conexión de la sala...';
+            try { peer.reconnect(); } catch (e) { }
+            setTimeout(() => { if (!started) renderPlayers(); }, 1500);
+        });
     }
 
     function hostPlayers() {
@@ -344,6 +385,12 @@
     }
 
     // ---------- CLIENTE (rol aleatorio) ----------
+    // ROBUSTO: cada intento tiene un VIGILANTE de 12s. Antes, si PeerJS
+    // se quedaba colgado en silencio (broker lento, ICE sin respuesta,
+    // error con tipo no contemplado), el "BUSCANDO PARTIDA..." era
+    // ETERNO — el bug de "a veces conecta y a veces se queda cargando".
+    // Ahora: cualquier fallo (incluido el silencio) entierra el intento
+    // y se reintenta limpio, hasta 15 veces, con contador en pantalla.
     function clientStart(c) {
         netReady((ok) => {
             if (!ok) { $('home-status').innerHTML = netFailMsg(); return; }
@@ -352,57 +399,106 @@
             myName = askName();
             lockHome(true);
             $('home-status').textContent = 'BUSCANDO PARTIDA ' + code + '...';
-            let tries = 0;
-            attempt();
+            joinAttempt(1);
+        });
+    }
 
-            function attempt() {
-                tries++;
-                if (tries > 12) {
-                    lockHome(false);
-                    $('home-status').innerHTML = '<span class="err">No se encontró la partida ' + code +
-                        '. Comprueba el código y que el anfitrión siga en el lobby.</span>';
+    function joinFail(msg) {
+        lockHome(false);
+        $('home-status').innerHTML = '<span class="err">' + msg + '</span>';
+    }
+
+    function joinAttempt(n) {
+        if (started || mode !== 'client') return;
+        if (n > 15) {
+            joinFail('No se pudo conectar con la partida ' + code + '. Comprueba el código, ' +
+                'tu conexión y que el anfitrión siga en el lobby.');
+            return;
+        }
+
+        let joined = false;      // welcome recibido en ESTE intento
+        let dead = false;        // este intento ya se descartó
+        let watchdog = null;
+        const p = MP.lobbyConnect(code);
+        peer = p;
+
+        function killPeer() {
+            try { p.destroy(); } catch (e) { }
+            if (peer === p) peer = null;
+        }
+
+        function giveUp(reason, delay) {
+            if (dead || joined) return;
+            dead = true;
+            clearTimeout(watchdog);
+            killPeer();
+            $('home-status').textContent = 'Reintentando (' + n + '/15) — ' + reason + '...';
+            setTimeout(() => joinAttempt(n + 1), delay || 1200);
+        }
+
+        // VIGILANTE: 12s sin welcome = intento muerto (cubre el cuelgue
+        // silencioso de PeerJS, que NO lanza error ni close)
+        watchdog = setTimeout(() => giveUp('la sala no responde', 800), MP.WATCHDOG || 12000);
+
+        p.on('open', () => {
+            if (dead || joined) return;
+            $('home-status').textContent = 'Conectando con la sala ' + code + '...';
+            const conn = p.connect(MP.LOBBY_PREFIX + code, { reliable: true });
+            p.__hostConn = conn;
+
+            conn.on('open', () => {
+                if (dead || joined) return;
+                try { conn.send(JSON.stringify({ t: 'hello', name: myName })); } catch (e) { }
+                $('home-status').textContent = 'Sala ' + code + ': esperando respuesta...';
+            });
+            conn.on('data', (d) => {
+                if (dead) return;
+                const m = (typeof d === 'string') ? JSON.parse(d) : d;
+                if (m.t === 'full') {
+                    clearTimeout(watchdog);
+                    killPeer();
+                    joinFail('PARTIDA COMPLETA (4 animatrónicos + guardia).');
                     return;
                 }
-                const p = MP.lobbyConnect(code);
-                p.on('open', () => {
-                    const conn = p.connect(MP.LOBBY_PREFIX + code, { reliable: true });
-                    p.__hostConn = conn;
-                    conn.on('open', () => {
-                        peer = p;
-                        conn.send(JSON.stringify({ t: 'hello', name: myName }));
-                        $('home-status').textContent = 'Conectando con la sala...';
-                    });
-                    conn.on('data', (d) => {
-                        const m = (typeof d === 'string') ? JSON.parse(d) : d;
-                        if (m.t === 'full') {
-                            $('home-status').innerHTML = '<span class="err">PARTIDA COMPLETA (4 animatrónicos + guardia).</span>';
-                            setTimeout(() => { try { p.destroy(); } catch (e) { } }, 300);
-                            return;
-                        }
-                        if (m.t === 'welcome') {
-                            myRole = m.role;              // rol ALEATORIO asignado por el anfitrión
-                            if (m.players) players = m.players;
-                            enterRoom();
-                        }
-                        if (m.t === 'players') {
-                            players = m.players || players;
-                            renderPlayers();
-                        }
-                        if (m.t === 'start') goGame(m);   // m.role = guardia O animatrónico (sorteo)
-                    });
-                    conn.on('close', () => {
-                        if (started) return;
-                        $('room-status').textContent = 'Conexión perdida...';
-                        setTimeout(() => { if (!started) window.location.reload(); }, 2000);
-                    });
-                });
-                p.on('error', (e) => {
-                    if (e.type === 'peer-unavailable') { try { p.destroy(); } catch (x) { } setTimeout(attempt, 1500); }
-                    else if (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' || e.type === 'socket-closed') {
-                        try { p.destroy(); } catch (x) { } setTimeout(attempt, 2500);
-                    }
-                });
-            }
+                if (m.t === 'welcome') {
+                    joined = true;
+                    clearTimeout(watchdog);
+                    myRole = m.role;              // rol ALEATORIO asignado por el anfitrión
+                    if (m.players) players = m.players;
+                    enterRoom();
+                }
+                if (m.t === 'players') {
+                    players = m.players || players;
+                    renderPlayers();
+                }
+                if (m.t === 'start') goGame(m);   // m.role = guardia O animatrónico (sorteo)
+            });
+            conn.on('close', () => {
+                if (started) return;
+                if (joined) {                      // ya estábamos dentro: la sala cayó
+                    $('room-status').textContent = 'Conexión perdida...';
+                    setTimeout(() => { if (!started) window.location.reload(); }, 2000);
+                } else {                           // ANTES de entrar: reintentar SIN recargar la página
+                    giveUp('la conexión se cerró', 1500);
+                }
+            });
+            conn.on('error', () => giveUp('error del canal de datos', 1500));
+        });
+
+        p.on('error', (e) => {
+            if (joined) return;
+            const t = (e && e.type) || '?';
+            if (t === 'peer-unavailable') giveUp('la sala no responde (anfitrión tardando en publicar)', 1500);
+            else if (t === 'network' || t === 'server-error' || t === 'socket-error' ||
+                t === 'socket-closed' || t === 'socket-timeout') giveUp('problema de red (' + t + ')', 2500);
+            else giveUp('error de red (' + t + ')', 2000);   // CUALQUIER otro error TAMBIÉN reintenta
+        });
+
+        // el broker cortó el socket: re-registrar; si no se recupera,
+        // el vigilante entierra el intento y se reintenta limpio
+        p.on('disconnected', () => {
+            if (dead || joined) return;
+            try { if (p.id) p.reconnect(); } catch (e) { }
         });
     }
 
