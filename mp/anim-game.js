@@ -117,10 +117,10 @@
     const WALK_MS = 950;   // igual que la caminata que ve el guardia
     const DOOR_CD = 10000; // espera entre aproximaciones a la puerta
     const BURST_MS = 1200; // ventana de irrupción (igual que el host)
-    // BALANCEO: cuenta atrás entre movimientos (igual que el host).
-    const MOVE_CD = 4000;
+    // BALANCEO (v7.2 — igual que el host): cuenta atrás entre pasos.
+    const MOVE_CD = 6000;
     // Máximo en el marco de la puerta antes de que el host te retire
-    const DOOR_MAX_MS = 10000;
+    const DOOR_MAX_MS = 8000;
     const cli = {
         room: (ROLE === 'foxy') ? '1C' : '1A',
         phase: 'connecting',
@@ -143,10 +143,12 @@
         runShown: false,       // vista de carrera de Foxy activa
         doorSince: 0,         // cuándo llegaste al marco (para la cuenta atrás)
         cooldown: { jumpscare: 0, special: 0 },
+        stunUntil: 0,           // ⚡ DESTELLO del guardia activo hasta esta fecha
         connected: false,
         lastMoveSent: 0
     };
     let net = null;
+    let wasStunned = false;   // ⚡ para restaurar los botones al acabar el destello
     const roomBox = {}, pips = {};
     let doorBarL = null, doorBarR = null, mapBuilt = false;
 
@@ -359,8 +361,13 @@
     }
 
     function navDisabled() {
-        return cli.walking || cli.attackBusy || cli.atDoor || cli.phase !== 'night';
+        return cli.walking || cli.attackBusy || cli.atDoor || cli.phase !== 'night' || Date.now() < cli.stunUntil;
     }
+
+    // ⚡ ¿aturdido por el DESTELLO del guardia?
+    function stunned() { return Date.now() < cli.stunUntil; }
+
+    function stunLeft() { return Math.max(0, cli.stunUntil - Date.now()); }
 
     function mkNavBtn(cls, arrow, label, onClick, disabled, sub) {
         const b = document.createElement('button');
@@ -458,6 +465,7 @@
         // Foxy: asomarse (máximo 3) y correr
         const peekBtn = mkNavBtn('', '◑', 'ASOMARSE FUERA DE LA CORTINA', () => {
             if (navDisabled()) return;
+            if (stunned()) { toast('⚡ ¡Aturdido por el destello! Espera ' + Math.ceil(stunLeft() / 1000) + 's...'); return; }
             if (Date.now() - cli.lastMoveSent < (Date.now() < cli.sprintUntil ? MOVE_CD / 2 : MOVE_CD)) return;
             cli.lastMoveSent = Date.now();
             net && net.send({ t: 'move', to: 'peek' });
@@ -480,6 +488,7 @@
 
     function tryMove(dest) {
         if (!net || !cli.connected || cli.phase !== 'night') return;
+        if (stunned()) { toast('⚡ ¡Aturdido por el destello! Espera ' + Math.ceil(stunLeft() / 1000) + 's para moverte...'); return; }
         if (cli.walking) { toast('Ya te estás moviendo...'); return; }
         if (cli.attackBusy || cli.atDoor) { toast('Estás en la puerta de la oficina: usa sus botones.'); return; }
         const now = Date.now();
@@ -499,6 +508,7 @@
     // ---- Aproximación desde la esquina hasta el marco de la puerta ----
     function doAttack() {
         if (!net || !cli.connected || cli.phase !== 'night' || cli.attackBusy || cli.walking || cli.atDoor) return;
+        if (stunned()) { toast('⚡ ¡Aturdido por el destello! No puedes atacar...'); return; }
         net.send({ t: 'attack' });
         cli.attackBusy = true;
         cli.attackAt = Date.now();
@@ -522,6 +532,7 @@
     // el host ejecuta el APAGÓN original (oscuridad + Toreador + kill).
     function freddySlipAttack() {
         if (!net || !cli.connected || cli.phase !== 'night' || cli.attackBusy || cli.walking || cli.atDoor) return;
+        if (stunned()) { toast('⚡ ¡Aturdido por el destello! No puedes colarte...'); return; }
         if (cli.state && cli.state.doorR) {
             toast('¡La puerta derecha está CERRADA! No puedes colarte.');
             return;
@@ -547,6 +558,7 @@
     // ---- Irrupción: ataque DESDE el marco de la puerta ----
     function attackFromDoor() {
         if (!net || !cli.connected || !cli.atDoor || cli.bursting || cli.enteredOffice) return;
+        if (stunned()) { toast('⚡ ¡Aturdido por el destello! No puedes irrumpir...'); return; }
         if (myDoorClosed()) { toast('¡La puerta está CERRADA! Retírate y espera.'); return; }
         net.send({ t: 'attack', door: true });
         cli.bursting = true;
@@ -581,6 +593,7 @@
 
     function useAbility(kind) {
         if (!net || !cli.connected || cli.phase !== 'night') return;
+        if (stunned()) { toast('⚡ ¡Aturdido por el destello! Ni tus habilidades responden...'); return; }
         const now = Date.now();
         const cd = kind === 'jumpscare' ? 15000 : 20000;
         if (now - cli.cooldown[kind] < cd) {
@@ -623,9 +636,28 @@
         $('ab-spec').disabled = cdS > 0 || cli.phase !== 'night';
         $('spec-name').textContent = SPEC_INFO[ROLE].name;
 
+        // ⚡ DESTELLO: mientras estás aturdido, TODOS los botones bloqueados
+        const stunL = stunLeft();
+        const navBtns = nav.querySelectorAll('button');
+        if (stunL > 0 && cli.phase === 'night') {
+            updateStunBar();
+            navBtns.forEach(b => {
+                b.disabled = true;
+                let small = b.querySelector('small');
+                if (!small) { small = document.createElement('small'); b.querySelector('.txt').appendChild(small); }
+                small.textContent = '⚡ aturdido ' + Math.ceil(stunL / 1000) + 's';
+                b.classList.add('cooling');
+            });
+            $('ab-jump').disabled = true;
+            $('ab-spec').disabled = true;
+            wasStunned = true;
+            return;   // cegado: nada más que pintar
+        }
+        updateStunBar();          // oculta la barra si ya terminó
+        if (wasStunned) { wasStunned = false; renderNav(); }   // restaurar botones
+
         // CUENTA ATRÁS DE MOVIMIENTO sobre los botones de sala (balanceo):
         // deshabilitados y con el tiempo restante hasta el próximo paso.
-        const navBtns = nav.querySelectorAll('button');
         const mcd = moveCdLeft();
         navBtns.forEach(b => {
             if (!b.__moveBtn) return;
@@ -837,6 +869,15 @@
                 toast('¡ENTRASTE A LA OFICINA! Cuando el guardia baje el monitor... ¡adiós guardia!');
                 playLocal('footstep.mp3', 0.55);
             }
+            // v7.2: el guion del juego puede "colarte" dentro un instante — el
+            // host (autoridad del jugador) te devuelve al marco. No te quedes
+            // clavado en la UI de "DENTRO DE LA OFICINA" por un espejismo.
+            if (cli.enteredOffice && !cli.bursting && act === doorVal) {
+                cli.enteredOffice = false;
+                view.classList.remove('bursting');
+                renderNav();
+                updateDoorBanner(s);
+            }
             // aviso: el guardia cerró la puerta mientras estás en el marco
             const myDoorClosed = (ROLE === 'bonnie') ? s.doorL : s.doorR;
             if (act === doorVal && myDoorClosed && !cli.enteredOffice && !cli.bursting &&
@@ -874,6 +915,44 @@
         setRoomImage('1C');
         view.style.filter = 'brightness(' + (0.7 + level * 0.15) + ') saturate(' + (0.9 + level * 0.12) + ')';
         renderNav();
+    }
+
+    // ------------------- ⚡ DESTELLO DEL GUARDIA -------------------
+    function playZapLocal() {
+        // zumbido eléctrico sintetizado — el mismo que oye el guardia
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;
+            const ctx = new AC();
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.type = 'sawtooth';
+            o.frequency.setValueAtTime(1750, ctx.currentTime);
+            o.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.38);
+            g.gain.setValueAtTime(0.4, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.42);
+            o.connect(g); g.connect(ctx.destination);
+            o.start(); o.stop(ctx.currentTime + 0.45);
+            setTimeout(() => { try { ctx.close(); } catch (e) { } }, 700);
+        } catch (e) { }
+    }
+
+    function stunFlash() {
+        const d = document.createElement('div');
+        d.style.cssText = 'position:fixed;inset:0;z-index:8;background:#fff;pointer-events:none;opacity:0.9;transition:opacity .5s;';
+        document.body.appendChild(d);
+        requestAnimationFrame(() => { d.style.opacity = '0'; });
+        setTimeout(() => d.remove(), 600);
+    }
+
+    function updateStunBar() {
+        let el = $('stunbar');
+        if (!el) return;
+        const left = stunLeft();
+        if (left <= 0 || cli.phase !== 'night') { el.style.display = 'none'; return; }
+        el.style.display = 'block';
+        const t = Math.ceil(left / 1000);
+        const html = '⚡ ATURDIDO POR EL DESTELLO ⚡<small>El guardia te cegó — puedes moverte de nuevo en ' + t + 's</small>';
+        if (el.__h !== html) { el.__h = html; el.innerHTML = html; }
     }
     // ------------------- Sonidos locales -------------------
     function playLocal(file, vol) {
@@ -957,6 +1036,8 @@
                 cli.night = m.night || cli.night;
                 resetDoorState();
                 cli.foxPeek = 0;
+                cli.stunUntil = 0;   // ⚡ nueva noche: el destello se limpia
+                const sb = $('stunbar'); if (sb) sb.style.display = 'none';
                 cli.room = (ROLE === 'foxy') ? '1C' : '1A'; // nueva noche: todos al inicio
                 if (ROLE !== 'foxy') view.style.filter = '';
                 cli.state = null;
@@ -980,6 +1061,9 @@
             if (why.indexOf('tiempo') >= 0) {
                 toast('⏱ ¡TIEMPO AGOTADO! No puedes acampar en la puerta: vuelves a ' + (ROOM_NAME[m.room] || 'la esquina') + '.');
                 playLocal('knock.mp3', 0.5);
+            } else if (why.indexOf('destello') >= 0) {
+                toast('⚡ ¡El DESTELLO del guardia te cegó y te echó de la puerta de vuelta al ' + (ROOM_NAME[m.room] || 'comedor') + '!');
+                playLocal('doorSlam.mp3', 0.6);
             } else if (wasBurst || why.indexOf('irrupci') >= 0) {
                 toast('¡La puerta se cerró justo a tiempo! Rebotas hacia el ' + (ROOM_NAME[m.room] || 'comedor') + '.');
                 playLocal('doorSlam.mp3', 0.7);
@@ -1004,13 +1088,17 @@
             if (cli.walking) {
                 cancelWalk(why === 'demasiado-rapido'
                     ? 'Cuenta atrás de movimiento: ' + (m.wait || 1) + 's antes del próximo paso.'
-                    : 'No puedes avanzar ahí desde tu posición actual.');
+                    : (why === 'aturdido'
+                        ? '⚡ ¡DESTELLO del guardia! Aturdido ' + (m.wait || 5) + 's — caminata cancelada.'
+                        : 'No puedes avanzar ahí desde tu posición actual.'));
             } else {
                 toast(why === 'max-cortina'
                     ? 'Ya estás completamente fuera de la cortina'
-                    : (why === 'demasiado-rapido'
-                        ? 'Cuenta atrás de movimiento: ' + (m.wait || 1) + 's antes del próximo paso.'
-                        : 'No puedes avanzar ahí.'));
+                    : (why === 'aturdido'
+                        ? '⚡ ¡DESTELLO del guardia! Aturdido ' + (m.wait || 5) + 's...'
+                        : (why === 'demasiado-rapido'
+                            ? 'Cuenta atrás de movimiento: ' + (m.wait || 1) + 's antes del próximo paso.'
+                            : 'No puedes avanzar ahí.')));
             }
         });
         net.on('atk', (m) => {
@@ -1025,6 +1113,7 @@
                     if (wasBurst) playLocal('doorSlam.mp3', 0.7);
                     toast('¡La puerta estaba CERRADA! Tu ataque rebota.');
                 }
+                else if (m.why === 'aturdido') toast('⚡ ¡DESTELLO del guardia! No puedes atacar (' + (m.wait || 5) + 's)...');
                 else if (m.why === 'cooldown') toast('El ataque aún se enfría (' + (m.wait || 10) + 's entre intentos)...');
                 else if (m.why === 'lejos') toast('Debes estar en la esquina del pasillo para asomarte.');
                 else if (m.why === 'asomate-primero') toast('Asímate primero fuera de la cortina.');
@@ -1056,6 +1145,18 @@
         });
         net.on('ability', (m) => {
             // efecto de habilidad de OTRO animatrónico (opcional)
+        });
+        // ⚡ DESTELLO del guardia: todos los animatrónicos quedan aturdidos
+        net.on('guardStun', (m) => {
+            const ms = (m && m.ms) || 5000;
+            cli.stunUntil = Date.now() + ms;
+            stunFlash();
+            playZapLocal();
+            glitch.classList.add('on');
+            setTimeout(() => glitch.classList.remove('on'), 700);
+            updateStunBar();
+            renderNav();   // botones deshabilitados con la cuenta atrás
+            toast('⚡ ¡EL GUARDIA USÓ SU DESTELLO! Aturdido ' + Math.ceil(ms / 1000) + 's — no puedes moverte ni atacar.', 4500);
         });
         net.on('__disconnect', () => {
             if (cli.phase !== 'menu') {

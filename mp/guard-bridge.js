@@ -30,6 +30,16 @@
 //     puerta es el valor 8.
 //   - Cuenta atrás de movimiento (balanceo) y límite de tiempo en la
 //     puerta (anti-camping).
+//
+// v7.2 (balanceo del guardia — "añadele una habilidad al guardia"):
+//   - ⚡ NUEVA HABILIDAD DEL GUARDIA: DESTELLO [F]. Botón abajo a la
+//     izquierda durante la noche. Aturde a TODOS los animatrónicos 5s
+//     (no pueden moverse ni atacar) y ECHA del marco de la puerta a
+//     quien esté acampando (rebote directo al comedor). Arranca con 2
+//     cargas y se recarga +1 cada hora de la noche (máx 2 guardadas).
+//   - Movimiento más lento: 6s entre salas (antes 4s; sprint de Foxy 3s).
+//   - Anti-camping más firme: 8s máx en el marco y con la puerta
+//     cerrada el animatrónico se cansa en 5-7s (antes 7-10s).
 // ============================================================
 
 (function () {
@@ -39,7 +49,7 @@
     const ROOM = params.get('mp');
     if (!ROOM) return; // un jugador: no hacer nada
 
-    const BRIDGE_VERSION = 'v7.1-autoridad-jugador';
+    const BRIDGE_VERSION = 'v7.2-destello-guardia';
     try { console.log('[MP] guard-bridge ' + BRIDGE_VERSION); } catch (e) { }
 
     const MY_NAME = params.get('name') || 'Guardia';
@@ -89,11 +99,24 @@
     };
     const DOOR_IMG = { L: { open: 103, closed: 102 }, R: { open: 119, closed: 118 } };
 
-    // Balanceo: cuenta atrás entre movimientos (ms). Con SPRINT se halva.
-    const MOVE_CD = 4000;
+    // Balanceo (v7.2): los animatrónicos cruzaban la pizzería demasiado
+    // rápido y podían acampar en la puerta para agotar la energía.
+    // Cuenta atrás entre movimientos (ms). Con SPRINT (Foxy) se halva.
+    const MOVE_CD = 6000;
     // Máximo de tiempo permitido plantado en el marco de la puerta (ms)
     // — "no deben poder estar mucho tiempo en la puerta, es trampa".
-    const DOOR_MAX_MS = 10000;
+    const DOOR_MAX_MS = 8000;
+
+    // ===== ⚡ DESTELLO DEL GUARDIA (v7.2 — botón antipánico) =====
+    // El guardia estaba desbalanceado: los animatrónicos llegan rápido y
+    // acampan en la puerta para que se le agote la energía cerrándola.
+    // El DESTELLO aturde a TODOS los animatrónicos un rato (no pueden ni
+    // moverse ni atacar) y ECHA del marco de la puerta a quien esté
+    // acampando (rebote directo al comedor). Cargas: arranca con 2 y se
+    // recarga +1 cada hora de la noche (máx. acumuladas). Atajo: [F].
+    const STUN_MS = 5000;        // duración del aturdimiento
+    const STUN_MAX = 2;          // cargas máximas acumuladas
+    const STUN_CD_MS = 12000;    // espera entre destellos
 
     // ---------------------------------------------------------
     // REFRESCO NATIVO DE CÁMARAS (v6):
@@ -103,6 +126,9 @@
     // afectada, re-pulsamos ese contador para que la ocupación se
     // re-renderice EN VIVO con el motor ORIGINAL del juego.
     // ---------------------------------------------------------
+    // estado de la habilidad del guardia
+    const stun = { charges: STUN_MAX, cdUntil: 0, lastHour: -1, hintShown: false };
+
     let lastPulseAt = 0;
     function pulseGuardCam(rooms) {
         const viewing = rs('viewing');
@@ -284,7 +310,10 @@
     // estilos de overlays
     (function injectStyle() {
         const st = document.createElement('style');
-        st.textContent = '@keyframes mpshake{0%{transform:translate(0,0) scale(1.02)}25%{transform:translate(-14px,9px) scale(1.05)}50%{transform:translate(11px,-13px) scale(1.03)}75%{transform:translate(-9px,-8px) scale(1.06)}100%{transform:translate(13px,10px) scale(1.02)}}';
+        st.textContent = '@keyframes mpshake{0%{transform:translate(0,0) scale(1.02)}25%{transform:translate(-14px,9px) scale(1.05)}50%{transform:translate(11px,-13px) scale(1.03)}75%{transform:translate(-9px,-8px) scale(1.06)}100%{transform:translate(13px,10px) scale(1.02)}}' +
+            '@keyframes mpstunready{0%,100%{box-shadow:0 0 .6vw rgba(80,150,255,.3)}50%{box-shadow:0 0 1.8vw rgba(80,150,255,.8)}}' +
+            '#mp-stun-btn.go{animation:mpstunready 1.6s infinite}#mp-stun-btn:disabled{cursor:default}' +
+            '#mp-stun.recharged #mp-stun-btn{animation:mpstunready .35s 5}';
         document.head.appendChild(st);
     })();
 
@@ -589,9 +618,19 @@
             const office = frame + 1;                // "dentro de la oficina" del juego
             const atDoor = (idx === frame);
             if (role !== 'freddy' && idx === office) {
-                // el juego lo metió dentro por sí solo: kill original en curso
-                if (!p.officeKillAt) {
+                // "dentro de la oficina" SOLO cuenta si el JUGADOR irrumpió
+                // (burst/kill en curso). Si fue el guion del juego el que lo
+                // coló, el bucle de autoridad lo devuelve al marco (v7.2) y NO
+                // hay kill — el kill es SIEMPRE decisión del jugador.
+                if ((p.burstDoneAt || p.burstUntil || p.killForced) && !p.officeKillAt) {
                     p.officeKillAt = now;
+                    if (!p.killForced) {
+                        // el juego lo metió a mitad de la irrupción: asegurar el
+                        // kill original (ciclo de monitor + respaldo de deadline)
+                        p.killForced = true;
+                        p.killDeadline = now + KILL_DEADLINE_MS;
+                        forceMonitorCycle();
+                    }
                     host && host.broadcast({ t: 'anim', role, room: 'doorIn' });
                     log(role.toUpperCase() + ' ENTRÓ a la oficina — kill original en camino');
                 }
@@ -687,6 +726,128 @@
         });
     }
 
+    // ---------------------------------------------------------
+    // ⚡ HABILIDAD DEL GUARDIA: DESTELLO (v7.2, balanceo)
+    // ---------------------------------------------------------
+    function playZap() {
+        // zumbido eléctrico sintetizado (WebAudio): no depende de assets
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;
+            const ctx = new AC();
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.type = 'sawtooth';
+            o.frequency.setValueAtTime(1750, ctx.currentTime);
+            o.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.38);
+            g.gain.setValueAtTime(0.45, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.42);
+            o.connect(g); g.connect(ctx.destination);
+            o.start(); o.stop(ctx.currentTime + 0.45);
+            setTimeout(() => { try { ctx.close(); } catch (e) { } }, 700);
+        } catch (e) { }
+    }
+
+    function showStunFlash() {
+        const d = document.createElement('div');
+        d.style.cssText = 'position:fixed;inset:0;z-index:99998;background:#fff;pointer-events:none;opacity:0.95;transition:opacity 0.55s;transform:translateZ(0);';
+        document.body.appendChild(d);
+        requestAnimationFrame(() => { d.style.opacity = '0'; });
+        setTimeout(() => d.remove(), 700);
+        const b = document.createElement('div');
+        b.style.cssText = 'position:fixed;inset:0;z-index:99997;background:radial-gradient(ellipse at center, rgba(120,180,255,0.30), rgba(30,50,110,0.14) 62%, transparent);pointer-events:none;';
+        document.body.appendChild(b);
+        setTimeout(() => b.remove(), 950);
+    }
+
+    function buildStunButton() {
+        const d = document.createElement('div');
+        d.id = 'mp-stun';
+        d.style.cssText = 'position:fixed;left:1.4vw;bottom:2vh;z-index:99998;font-family:monospace;display:none;';
+        d.innerHTML =
+            '<button id="mp-stun-btn" title="DESTELLO [F]: aturde a TODOS los animatrónicos 5s y echa del marco de la puerta a quien acampe (vuelve al comedor). Se recarga 1 carga cada hora de la noche (máx ' + STUN_MAX + ')." ' +
+            'style="display:flex;align-items:center;gap:0.55vw;background:rgba(8,12,24,0.9);border:0.16vw solid #6db4ff;color:#bfe0ff;font-size:1vw;padding:0.8vh 1vw;letter-spacing:0.07vw;text-shadow:0 0 0.5vw rgba(109,180,255,0.5);">' +
+            '<span style="font-size:1.45vw;line-height:1;">⚡</span><span>DESTELLO</span>' +
+            '<span id="mp-stun-n" style="color:#fff;background:rgba(109,180,255,0.25);padding:0.15vh 0.5vw;border:0.08vw solid rgba(109,180,255,0.6);">x' + STUN_MAX + '</span>' +
+            '</button>' +
+            '<div id="mp-stun-cd" style="font-size:0.72vw;color:#8fb8e8;margin-top:0.4vh;letter-spacing:0.05vw;"></div>';
+        document.body.appendChild(d);
+        document.getElementById('mp-stun-btn').addEventListener('click', doGuardStun);
+        // primer uso de la sesión: explicar la habilidad
+        if (!stun.hintShown) {
+            const h = document.createElement('div');
+            h.style.cssText = 'font-size:0.72vw;color:#7aa8d8;margin-top:0.4vh;max-width:16vw;line-height:1.5;';
+            h.textContent = 'Aturde a todos los animatrónicos 5s y echa a quien acampe en tu puerta. +1 carga cada hora.';
+            d.appendChild(h);
+        }
+    }
+
+    function updateStunUI(s) {
+        const d = document.getElementById('mp-stun');
+        if (!d) return;
+        const atNight = state.phase === 'night' && app() && app().currentFrame === 2;
+        d.style.display = atNight ? 'block' : 'none';
+        if (!atNight) return;
+        const btn = document.getElementById('mp-stun-btn');
+        const cdEl = document.getElementById('mp-stun-cd');
+        const cd = Math.max(0, stun.cdUntil - Date.now());
+        const ready = stun.charges > 0 && cd <= 0;
+        btn.disabled = !ready;
+        btn.classList.toggle('go', ready);
+        document.getElementById('mp-stun-n').textContent = 'x' + stun.charges;
+        if (cdEl) cdEl.textContent = ready
+            ? 'LISTO — clic o [F]'
+            : (stun.charges <= 0 ? 'sin cargas — +1 cada hora' : 'recargando ' + Math.ceil(cd / 1000) + 's');
+    }
+
+    function tickStunRecharge(s) {
+        // +1 carga por cada hora de la noche (12→1→2→3→4→5 AM)
+        if (state.phase !== 'night' || !s || s.minute == null) return;
+        const hour = Math.floor(s.minute / 60);
+        if (stun.lastHour < 0) { stun.lastHour = hour; return; }
+        if (hour > stun.lastHour) {
+            stun.lastHour = hour;
+            if (stun.charges < STUN_MAX) {
+                stun.charges++;
+                log('⚡ DESTELLO recargado (hora ' + hour + ') — cargas: ' + stun.charges);
+                const n = document.getElementById('mp-stun');
+                if (n) { n.classList.add('recharged'); setTimeout(() => n.classList.remove('recharged'), 2000); }
+            }
+        }
+    }
+
+    function doGuardStun() {
+        if (state.phase !== 'night' || !app() || app().currentFrame !== 2) return;
+        const now = Date.now();
+        if (stun.charges <= 0) { log('⚡ DESTELLO sin cargas'); return; }
+        if (now < stun.cdUntil) { log('⚡ DESTELLO recargando'); return; }
+        stun.charges--;
+        stun.cdUntil = now + STUN_CD_MS;
+        playZap();
+        showStunFlash();
+        let stunned = 0, bounced = 0;
+        Object.keys(state.players).forEach(role => {
+            const p = state.players[role];
+            if (!p) return;
+            p.stunUntil = now + STUN_MS;
+            stunned++;
+            if (role === 'foxy') return;   // Foxy no tiene marco de puerta
+            const idx = rs(ACTIVITY_COUNTER[role]);
+            if (idx == null) return;
+            const killing = p.killForced || p.officeKillAt;   // cadena de kill ya en marcha: no interrumpirla
+            if (!killing && idx === DOOR_FRAME[role]) {
+                // acampando/irrumpiendo en el marco: el destello lo ECHA al comedor
+                retractFromDoor(role, 'destello del guardia', 'dining');
+                bounced++;
+            }
+        });
+        host && host.broadcast({ t: 'guardStun', ms: STUN_MS });
+        log('⚡ DESTELLO: ' + stunned + ' aturdido(s) ' + STUN_MS / 1000 + 's, ' + bounced + ' echado(s) de la puerta');
+        overlayDiv('mp-stuntoast',
+            '<div style="color:#bfe0ff;font-family:monospace;text-align:center;font-size:2.4vw;text-shadow:0 0 1.2vw #3d80ff;">⚡ ¡DESTELLO!</div>' +
+            '<div style="color:#dfefff;font-family:monospace;font-size:1.05vw;margin-top:0.8vh;">Animatrónicos aturdidos — ' +
+            (bounced ? bounced + ' echado(s) de tu puerta' : 'nadie estaba en las puertas') + '</div>', 1900);
+    }
+
     async function startHost() {
         await loadScriptFB([
             'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
@@ -764,6 +925,8 @@
             if (s.frame === 2) { state.lastPositions = s.positions; state.lastState = s; }
             host.broadcast({ t: 'state', s });
             updateBadge(s);
+            tickStunRecharge(s);
+            updateStunUI(s);
             if (state.phase === 'night') {
                 updateCamViews();       // presencia en cámaras no-escenario
                 watchDoorAssaults();
@@ -799,12 +962,41 @@
                     }
                     return;
                 }
-                if (p.doorAssault || p.officeKillAt) return;   // asalto/kill: cadena original
+                // Cadena de kill DEL JUGADOR en curso (irrupción/burst/kill):
+                // ahí manda la cadena original y no se toca nada. El simple
+                // asomo (doorAssault sin burst) SÍ se protege contra el guion.
+                if (p.burstUntil || p.burstDoneAt || p.killForced || p.officeKillAt) return;
                 const idx = rs(ACTIVITY_COUNTER[role]);
                 if (idx == null || p.room == null) return;
+                // v7.2: ESTADOS DE PUERTA con autoridad del jugador. Descubierto
+                // en vivo: el guion del juego CUELÁ al jugador DENTRO de la
+                // oficina (7→8→9) tras unos segundos con la puerta abierta, sin
+                // que pulse IRRUMPIR — y con la IA congelada la cadena de kill
+                // del juego se queda COLGADA (guardia vivo, animatrónico en el
+                // limbo). El kill SOLO puede llegar por decisión del jugador.
+                if (idx >= DOOR_FRAME[role]) {
+                    if (p.doorAssault) {
+                        // asomado en el marco por decisión propia: el guion puede
+                        // rebobinarlo a su sala o colarlo dentro; solo lo segundo
+                        // es ilegal — lo devolvemos al marco con el helper armado.
+                        if (idx > DOOR_FRAME[role]) {
+                            setRS(ACTIVITY_COUNTER[role], DOOR_FRAME[role]);
+                            setHelperVisible(role, true);
+                            log('guion metió a ' + role + ' (' + idx + ') — revertido al marco (autoridad del jugador)');
+                        }
+                    } else {
+                        // ni siquiera se asomó: teletransporte del guion a la
+                        // puerta → devolver a su sala real
+                        const back = ROOM_INDEX[role][p.room];
+                        if (back != null) {
+                            setRS(ACTIVITY_COUNTER[role], back);
+                            log('guion teletransportó a ' + role + ' a la puerta — revertido a ' + p.room);
+                        }
+                    }
+                    return;
+                }
                 const expected = ROOM_INDEX[role][p.room];
                 if (expected == null || idx === expected) return;
-                if (idx >= DOOR_FRAME[role]) return;           // estados de puerta/kill: no tocar
                 setRS(ACTIVITY_COUNTER[role], expected);
                 pulseGuardCam([p.room]);   // re-render nativo si el guardia mira la sala
                 log('guion movió a ' + role + ' (' + idx + ') — revertido a ' + p.room + ' (' + expected + ')');
@@ -828,8 +1020,10 @@
                     : (img('right door') === DOOR_IMG.R.closed);
                 if (!doorClosed) { p.doorClosedSince = 0; p.retractAt = 0; return; }
                 if (!p.doorClosedSince) {
+                    // BALANCEO v7.2: se cansa antes con la puerta cerrada (5-7s)
+                    // — menos energía gastada por el guardia por cada acampe.
                     p.doorClosedSince = now;
-                    p.retractAt = now + 7000 + Math.floor(Math.random() * 3000);
+                    p.retractAt = now + 5000 + Math.floor(Math.random() * 2000);
                     return;
                 }
                 if (p.retractAt && now >= p.retractAt) retractFromDoor(role, 'puerta cerrada demasiado tiempo');
@@ -861,6 +1055,11 @@
                 chica: rs('chica AI'), foxy: rs('foxy AI')
             };
             Object.keys(state.players).forEach(role => freezeAI(role));
+            // ⚡ reset de la habilidad del guardia para la nueva noche
+            stun.charges = STUN_MAX;
+            stun.cdUntil = 0;
+            stun.lastHour = -1;
+            Object.keys(state.players).forEach(role => { state.players[role].stunUntil = 0; });
             // posiciones iniciales reales desde el juego
             Object.keys(state.players).forEach(role => {
                 const p = state.players[role];
@@ -955,6 +1154,11 @@
         const p = state.players[role];
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
+        // ⚡ DESTELLO: aturdido → no puede moverse
+        if (now < (p.stunUntil || 0)) {
+            try { entry.conn.send(JSON.stringify({ t: 'moveBad', why: 'aturdido', wait: Math.ceil((p.stunUntil - now) / 1000) })); } catch (e) { }
+            return;
+        }
         // BALANCEO (v6): cuenta atrás real entre movimientos — antes eran
         // 450ms y podían cruzar la pizzería en segundos ("avanzan rapidísimo").
         // El cliente muestra la cuenta atrás en los botones; con SPRINT se halva.
@@ -1012,6 +1216,11 @@
         const p = state.players[role];
         if (!p || state.phase !== 'night') return;
         const now = Date.now();
+        // ⚡ DESTELLO: aturdido → no puede atacar
+        if (now < (p.stunUntil || 0)) {
+            try { entry.conn.send(JSON.stringify({ t: 'atk', ok: false, why: 'aturdido', wait: Math.ceil((p.stunUntil - now) / 1000) })); } catch (e) { }
+            return;
+        }
 
         if (role === 'foxy') {
             if (now - (p.attackAt || 0) < 12000) {
@@ -1263,6 +1472,10 @@
         d.style.cssText = 'position:fixed;top:8px;right:12px;z-index:99999;color:#ffd34d;font-family:monospace;font-size:13px;background:rgba(0,0,0,0.55);padding:6px 10px;pointer-events:none;text-shadow:0 0 6px rgba(255,211,77,.4);';
         d.textContent = 'MP [' + ROOM + '] ' + MY_NAME;
         document.body.appendChild(d);
+        buildStunButton();
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'f' || e.key === 'F') doGuardStun();
+        });
     }
 
     function hourText(s) {

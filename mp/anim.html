@@ -245,6 +245,40 @@
             50% { box-shadow: 0 0 1.8vw rgba(255, 184, 77, 0.9); }
         }
 
+        /* ================= ⚡ BANNER DE ATURDIMIENTO (DESTELLO DEL GUARDIA) ================= */
+        #stunbar {
+            position: fixed;
+            top: 30vh;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 8;
+            display: none;
+            text-align: center;
+            font-size: 1.6vw;
+            font-weight: bold;
+            letter-spacing: 0.22vw;
+            padding: 1.2vh 2.4vw;
+            background: rgba(6, 12, 26, 0.85);
+            border: 0.16vw solid #6db4ff;
+            color: #bfe0ff;
+            animation: stunelec 0.4s infinite;
+            pointer-events: none;
+        }
+
+        #stunbar small {
+            display: block;
+            font-size: 0.85vw;
+            font-weight: normal;
+            color: #9fc4ee;
+            letter-spacing: 0.1vw;
+            margin-top: 0.5vh;
+        }
+
+        @keyframes stunelec {
+            0%, 100% { box-shadow: 0 0 0.6vw rgba(80, 150, 255, 0.4); }
+            50% { box-shadow: 0 0 2vw rgba(80, 150, 255, 0.95); }
+        }
+
         /* ================= COMPAÑEROS EN TU SALA ================= */
         #mates {
             position: fixed;
@@ -506,6 +540,8 @@
             #roomname { font-size: 15px; }
             #doorbanner { font-size: 14px; }
             #doorbanner small { font-size: 11px; }
+            #stunbar { font-size: 15px; }
+            #stunbar small { font-size: 11px; }
             #mates img { width: 34px; height: 34px; }
         }
     </style>
@@ -547,6 +583,7 @@
 
     <div id="roomname">—</div>
     <div id="doorbanner"></div>
+    <div id="stunbar"></div>
     <div id="mates"></div>
 
     <div id="mapwrap">
@@ -589,7 +626,7 @@
         })();
     </script>
     <script src="net.js"></script>
-    <script src="anim-game.js?v=63"></script>
+    <script src="anim-game.js?v=65"></script>
 </body>
 
 </html>
