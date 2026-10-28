@@ -76,12 +76,16 @@
     };
     const CAM_VIEWING = { '1A': 1, '1B': 2, '1C': 99, '5': 5, '3': 33, '2A': 3, '2B': 22, '4A': 4, '4B': 42, '6': 6, '7': 7 };
     // índice de actividad -> sala (mapa inverso del juego)
-    // ⚠️ v3: FREDDY va desplazado +1: sus valores 0/1/2 son ESCENARIO,
-    // 3=comedor, 4=baños, 5=cocina, 6=pasillo E, 7=esquina E, 8=puerta.
+    // ⚠️ v8: mapa REAL verificado contra el render nativo del juego:
+    //   bonnie: 0=1A, 1=1B, 2=5(bastidores), 3=2A, 4=3(almacén), 5=2B,
+    //           6=puerta O, 7=marco, 8=oficina
+    //   chica:  0=1A, 1=1B, 2=7(baños), 3=6(cocina), 4=4A, 5=4B,
+    //           6=puerta E, 7=marco, 8=oficina
+    //   freddy: desplazado +1: 0/1/2=1A, 3=1B, 4=7, 5=6, 6=4A, 7=4B, 8=puerta
     const IDX_ROOM = {
-        bonnie: { 0: '1A', 2: '1B', 3: '5', 4: '2A', 5: '3', 6: '2B', 7: 'doorL' },
-        chica: { 0: '1A', 2: '1B', 3: '7', 4: '6', 5: '4A', 6: '4B', 7: 'doorR' },
-        freddy: { 0: '1A', 1: '1A', 2: '1A', 3: '1B', 4: '7', 5: '6', 6: '4A', 7: '4B', 8: 'doorR' }
+        bonnie: { 0: '1A', 1: '1B', 2: '5', 3: '2A', 4: '3', 5: '2B', 6: '2B', 7: 'doorL', 8: 'doorIn' },
+        chica: { 0: '1A', 1: '1B', 2: '7', 3: '6', 4: '4A', 5: '4B', 6: '4B', 7: 'doorR', 8: 'doorIn' },
+        freddy: { 0: '1A', 1: '1A', 2: '1A', 3: '1B', 4: '7', 5: '6', 6: '4A', 7: '4B', 8: 'doorR', 9: 'doorIn' }
     };
     // valor de "estás en el marco de la puerta" por rol
     const DOOR_ACT = { bonnie: 7, chica: 7, freddy: 8 };
@@ -462,15 +466,16 @@
     }
 
     function renderFoxyNav() {
-        // Foxy: asomarse (máximo 3) y correr
+        // Foxy: asomarse (máximo 2 — el valor 3 dispara la carrera REAL
+        // del juego y mataba al guardia sin que Foxy atacara) y correr
         const peekBtn = mkNavBtn('', '◑', 'ASOMARSE FUERA DE LA CORTINA', () => {
             if (navDisabled()) return;
             if (stunned()) { toast('⚡ ¡Aturdido por el destello! Espera ' + Math.ceil(stunLeft() / 1000) + 's...'); return; }
             if (Date.now() - cli.lastMoveSent < (Date.now() < cli.sprintUntil ? MOVE_CD / 2 : MOVE_CD)) return;
             cli.lastMoveSent = Date.now();
             net && net.send({ t: 'move', to: 'peek' });
-        }, cli.foxPeek >= 3 || cli.attackBusy || cli.phase !== 'night',
-            cli.foxPeek >= 3 ? 'ya estás fuera del todo' : 'el guardia te ve en la CAM 1C');
+        }, cli.foxPeek >= 2 || cli.attackBusy || cli.phase !== 'night',
+            cli.foxPeek >= 2 ? 'ya estás medio fuera — ¡CORRE!' : 'el guardia te ve en la CAM 1C');
         peekBtn.__moveBtn = true;
         mkNavBtn('attack', '!', '¡CORRER A LA OFICINA!', doAttack, cli.foxPeek < 1 || cli.attackBusy || cli.phase !== 'night',
             cli.foxPeek < 1 ? 'asómate primero' : 'por el pasillo oeste');
@@ -482,7 +487,7 @@
                 toast('Vuelves detrás de la cortina');
             }, false);
         }
-        const overlays = ['(Tras la cortina)', '(Asomado)', '(Medio fuera)', '(Fuera de la cortina)'];
+        const overlays = ['(Tras la cortina)', '(Asomado)', '(Medio fuera)'];
         if (!cli.walking) $('roomname').textContent = ROOM_NAME['1C'] + ' ' + (overlays[cli.foxPeek] || '');
     }
 
